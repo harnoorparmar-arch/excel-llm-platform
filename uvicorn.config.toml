@@ -1,0 +1,7 @@
+# Reference: uvicorn does not load this file by default. Use ./run.sh for dev.
+# (Keeps reload dirs / excludes in one place for documentation and future tooling.)
+
+[uvicorn]
+reload = true
+reload_dirs = ["api", "parser", "frontend", "storage"]
+reload_excludes = [".venv", "node_modules", "__pycache__", "test_data"]

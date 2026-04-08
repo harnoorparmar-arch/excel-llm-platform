@@ -1,0 +1,1359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Commission Filing - HITL Review</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#2563eb',
+            primaryHover: '#1d4ed8',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    .commission-amount { color: #059669; font-weight: 700; }
+    .badge-green { background: #dcfce7; color: #166534; }
+    .badge-amber { background: #fef3c7; color: #92400e; }
+    .badge-red { background: #fee2e2; color: #991b1b; }
+    .row-needs-review { background: #fffbeb; }
+    .row-approved { background: #ecfdf5; }
+    .row-skipped { background: #f3f4f6; opacity: 0.8; }
+  </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex">
+  <!-- Dark Sidebar -->
+  <aside class="w-64 bg-gray-900 text-white flex-shrink-0 min-h-screen flex flex-col">
+    <div class="p-6">
+      <h1 class="text-lg font-bold">Commission Filing</h1>
+      <p class="text-gray-400 text-sm mt-1">HITL Review</p>
+    </div>
+    <nav class="px-4 space-y-1">
+      <a href="/" class="block py-2 px-3 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg text-sm">
+        ← Single File
+      </a>
+      <a href="/workspace" class="block py-2 px-3 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg text-sm">
+        Workspace
+      </a>
+    </nav>
+    <div class="mt-auto p-4">
+      <p class="text-xs text-gray-400">Upload commission reports. Review and approve before filing to Salesforce.</p>
+    </div>
+  </aside>
+
+  <!-- Main Content -->
+  <main class="flex-1 overflow-auto">
+    <div class="bg-white min-h-screen shadow-sm">
+      <div class="max-w-6xl mx-auto px-6 py-8">
+
+        <!-- SECTION 1 - Upload Zone -->
+        <section id="upload-section" class="mb-8">
+          <div id="dropZone" class="border-2 border-dashed border-gray-300 rounded-xl p-12 text-center cursor-pointer hover:border-blue-400 hover:bg-gray-50 transition-colors">
+            <input type="file" id="fileInput" class="hidden" accept=".xlsx,.xls,.xlsm,.xlsb,.pdf,.txt,.csv,.tsv,.slk" multiple />
+            <p id="drop-text" class="text-gray-500 text-lg">Drag and drop commission files here</p>
+            <p class="text-sm text-gray-400 mt-2">or click to browse. You can upload multiple files at once.</p>
+            <p class="text-xs text-gray-400 mt-1">Accepted: PDF, Excel (.xlsx, .xls, .xlsm, .xlsb), CSV, TXT, SLK</p>
+            <div id="file-list" class="hidden mt-3">
+              <div class="text-sm font-medium text-gray-700 mb-2">Files to process:</div>
+              <div id="file-list-items" class="space-y-1"></div>
+            </div>
+          </div>
+          <div class="flex gap-3 mt-4">
+            <button id="process-btn" disabled class="px-6 py-2.5 bg-primary text-white rounded-lg font-medium hover:bg-primaryHover disabled:bg-gray-300 disabled:cursor-not-allowed disabled:hover:bg-gray-300">
+              Process Files
+            </button>
+            <div id="progress-indicator" class="hidden flex items-center gap-2 text-gray-500">
+              <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              <span id="progress-text">Processing...</span>
+            </div>
+          </div>
+          <div id="error-message" class="hidden mt-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm"></div>
+        </section>
+
+        <div id="invoice-search-bar" class="hidden mb-6 p-4 bg-white border border-gray-200 rounded-lg shadow-sm">
+          <div class="flex items-center gap-3">
+            <div class="flex-1">
+              <label class="text-sm font-medium text-gray-700 block mb-1">🔍 Search by Invoice Number</label>
+              <div class="flex gap-2">
+                <input type="text" id="invoice-search-input" placeholder="Enter invoice number..." class="flex-1 border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-400">
+                <button id="invoice-search-btn" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">Search</button>
+                <button id="invoice-search-clear" class="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50">Clear</button>
+              </div>
+            </div>
+            <div id="invoice-search-result" class="text-sm text-gray-600"></div>
+          </div>
+        </div>
+
+        <!-- SECTION 2 - Summary Cards (hidden until results) -->
+        <section id="summary-section" class="hidden mb-8">
+          <h2 class="text-base font-semibold text-gray-800 mb-4">Summary</h2>
+          <div class="grid grid-cols-2 md:grid-cols-5 gap-4" id="summary-cards-grid">
+            <div class="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+              <p class="text-xs text-gray-500 uppercase tracking-wide">Manufacturer</p>
+              <p id="card-manufacturer" class="text-lg font-semibold text-gray-800 mt-1">—</p>
+              <p id="card-period" class="text-sm text-gray-600">—</p>
+            </div>
+            <div class="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+              <p class="text-xs text-gray-500 uppercase tracking-wide">Total Commission</p>
+              <p id="summary-total-commission" class="text-2xl font-bold commission-amount mt-1" data-summary="file_total_commission">$0.00</p>
+            </div>
+            <div class="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+              <p class="text-xs text-gray-500 uppercase tracking-wide">Total POs</p>
+              <p id="card-pos" class="text-xl font-semibold text-gray-800 mt-1">0</p>
+            </div>
+            <div class="bg-white border border-gray-200 rounded-lg p-4 shadow-sm" id="card-review-wrap">
+              <p class="text-xs text-gray-500 uppercase tracking-wide">Needs Review</p>
+              <p id="card-review" class="text-xl font-semibold mt-1">0</p>
+            </div>
+            <div class="bg-white border border-gray-200 rounded-lg p-4 shadow-sm" id="card-nopo-wrap">
+              <p class="text-xs text-gray-500 uppercase tracking-wide">Need PO Assignment</p>
+              <p id="card-nopo" class="text-xl font-semibold text-gray-800 mt-1">0 items</p>
+              <p id="card-nopo-hint" class="text-xs text-amber-600 mt-1 hidden">Review below to assign</p>
+            </div>
+            <div class="bg-white border border-gray-200 rounded-lg p-4 shadow-sm hidden" id="card-files-wrap">
+              <p class="text-xs text-gray-500 uppercase tracking-wide">Files Processed</p>
+              <p id="card-files" class="text-xl font-semibold text-gray-800 mt-1">—</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- SECTION 3 - PO Groups Table -->
+        <section id="table-section" class="hidden mb-8">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-base font-semibold text-gray-800">PO Groups</h2>
+            <div class="flex gap-2">
+              <button data-filter="all" class="filter-btn px-3 py-1.5 rounded-lg text-sm font-medium bg-primary text-white">All</button>
+              <button data-filter="review" class="filter-btn px-3 py-1.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-200">Needs Review</button>
+              <button data-filter="approved" class="filter-btn px-3 py-1.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-200">Approved</button>
+              <button data-filter="skipped" class="filter-btn px-3 py-1.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-200">Skipped</button>
+            </div>
+          </div>
+          <div class="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+            <div class="overflow-x-auto max-h-[500px] overflow-y-auto">
+              <table class="w-full">
+                <thead class="bg-gray-50 sticky top-0">
+                  <tr>
+                    <th class="w-8"></th>
+                    <th class="text-left py-3 px-4 text-xs font-semibold text-gray-600 uppercase">PO Number</th>
+                    <th class="text-left py-3 px-4 text-xs font-semibold text-gray-600 uppercase">Dealer</th>
+                    <th class="text-right py-3 px-4 text-xs font-semibold text-gray-600 uppercase">Commission</th>
+                    <th class="text-center py-3 px-4 text-xs font-semibold text-gray-600 uppercase">Line Items</th>
+                    <th class="text-left py-3 px-4 text-xs font-semibold text-gray-600 uppercase">Invoice Date(s)</th>
+                    <th class="text-center py-3 px-4 text-xs font-semibold text-gray-600 uppercase">Confidence</th>
+                    <th class="text-left py-3 px-4 text-xs font-semibold text-gray-600 uppercase">Issues</th>
+                    <th class="text-center py-3 px-4 text-xs font-semibold text-gray-600 uppercase">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="po-table-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- SECTION 4 - No PO Items -->
+        <div id="no-po-section" style="display:none" class="mt-6 mb-8">
+          <h3 class="text-lg font-semibold text-gray-800 mb-4">
+            ⚠️ Items without PO Number
+            <span id="no-po-count" class="ml-2 px-2 py-0.5 text-sm bg-amber-100 text-amber-700 rounded-full"></span>
+          </h3>
+          <p class="text-sm text-gray-500 mb-4">
+            These items have no PO number. Review each one and either use the invoice number as PO, enter a PO manually, or skip.
+          </p>
+          <div id="no-po-items-container"></div>
+        </div>
+
+      </div>
+
+      <!-- SECTION 5 - Action Bar (fixed bottom) -->
+      <div id="action-bar" class="hidden fixed bottom-0 md:left-64 left-0 right-0 bg-white border-t border-gray-200 px-6 py-4 shadow-lg z-10">
+        <div class="max-w-6xl mx-auto flex items-center justify-between">
+          <div class="text-sm text-gray-600">
+            <span class="font-medium" id="bar-approved">0</span> approved
+            <span class="mx-2">|</span>
+            <span class="font-medium" id="bar-skipped">0</span> skipped
+            <span class="mx-2">|</span>
+            <span class="font-medium" id="bar-pending">0</span> pending
+            <span class="ml-4 commission-amount" id="approved-amount" title="Sum of approved rows">$0.00 approved</span>
+          </div>
+          <div class="flex gap-3">
+            <button id="approve-all-clean-btn" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">
+              Approve All Clean
+            </button>
+            <button id="undo-all-btn" style="display:none" class="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50">
+              Undo All
+            </button>
+            <button id="export-csv-btn" disabled class="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed">
+              📥 Export CSV
+            </button>
+            <button id="file-salesforce-btn" disabled class="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primaryHover disabled:bg-gray-300 disabled:cursor-not-allowed">
+              ☁️ File to Salesforce
+            </button>
+          </div>
+        </div>
+      </div>
+      <div id="action-bar-spacer" class="hidden h-20"></div>
+    </div>
+  </main>
+
+  <!-- File to Salesforce Modal -->
+  <div id="file-modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+    <div class="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
+      <h3 class="text-lg font-semibold text-gray-800 mb-2">File to Salesforce</h3>
+      <p id="file-modal-text" class="text-gray-600 text-sm mb-6">Filing X POs totaling $Y to Salesforce</p>
+      <div class="flex gap-3 justify-end">
+        <button id="file-modal-cancel" class="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50">Cancel</button>
+        <button id="file-modal-confirm" class="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primaryHover">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = '';
+    let uploadedFiles = []; // File[]
+    let resultData = null;
+    let poStates = {}; // po_normalized -> 'pending' | 'approved' | 'skipped' | 'edited'
+    let poEdits = {};  // po_normalized -> { dealer_name, total_commission, po_number }
+    let expandedRows = new Set(); // po_normalized
+    let noPOItems = [];
+    let approvedNoPOItems = [];
+    let currentFilter = 'all';
+    let batchApprovedKeys = new Set();
+
+    // --- Upload Zone ---
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const processBtn = document.getElementById('process-btn');
+    const progressIndicator = document.getElementById('progress-indicator');
+    const errorMessage = document.getElementById('error-message');
+
+    const ACCEPT_TYPES = ['.pdf', '.xlsx', '.xls', '.xlsm', '.xlsb', '.csv', '.tsv', '.txt', '.slk'];
+
+    if (dropZone && fileInput) {
+      // Click on drop zone opens file picker (skip if clicking button/link inside)
+      dropZone.addEventListener('click', (e) => {
+        if (e.target.tagName === 'BUTTON' || e.target.tagName === 'A' ||
+            e.target.closest('button') || e.target.closest('a') ||
+            e.target.closest('.no-po-item')) return;
+        fileInput.click();
+      });
+      dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.add('border-blue-500', 'bg-blue-50');
+      });
+      dropZone.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.remove('border-blue-500', 'bg-blue-50');
+      });
+      dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.remove('border-blue-500', 'bg-blue-50');
+        const files = e.dataTransfer.files;
+        if (files.length > 0) handleFileSelect(files);
+      });
+      fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) handleFileSelect(e.target.files);
+      });
+    } else {
+      console.error('dropZone or fileInput not found!', { dropZone, fileInput });
+    }
+
+    function handleFileSelect(files) {
+      const fileArray = Array.from(files);
+      const valid = fileArray.filter(f => {
+        const ext = '.' + (f.name.split('.').pop() || '').toLowerCase();
+        return ACCEPT_TYPES.includes(ext);
+      });
+      if (valid.length > 0 && valid.length < fileArray.length) {
+        showError(`Some files were skipped. Accepted: PDF, Excel, CSV, TXT, SLK.`);
+      }
+      if (valid.length === 0) {
+        showError('Invalid file type. Use PDF, Excel, CSV, TXT, or SLK.');
+        return;
+      }
+      uploadedFiles = valid;
+      renderFileList(uploadedFiles);
+      processBtn.disabled = false;
+      hideError();
+    }
+
+    function getFileIcon(filename) {
+      const n = filename.toLowerCase();
+      if (n.endsWith('.pdf')) return '📄';
+      if (n.endsWith('.xlsx') || n.endsWith('.xls') || n.endsWith('.xlsm') || n.endsWith('.xlsb') || n.endsWith('.slk')) return '📊';
+      if (n.endsWith('.txt') || n.endsWith('.csv') || n.endsWith('.tsv')) return '📝';
+      return '📎';
+    }
+
+    function renderFileList(files) {
+      const container = document.getElementById('file-list-items');
+      if (!container) return;
+      container.innerHTML = '';
+      Array.from(files).forEach((file, idx) => {
+        const div = document.createElement('div');
+        div.className = 'flex items-center justify-between p-2 bg-gray-50 rounded text-sm';
+        div.innerHTML = `
+          <span class="flex items-center gap-2">
+            <span>${getFileIcon(file.name)}</span>
+            <span>${escapeHtml(file.name)}</span>
+            <span class="text-gray-400 text-xs">(${(file.size/1024).toFixed(0)}kb)</span>
+          </span>
+          <button class="btn-remove-file text-red-400 hover:text-red-600 text-xs" data-idx="${idx}">Remove</button>
+        `;
+        container.appendChild(div);
+      });
+      document.getElementById('file-list').classList.remove('hidden');
+      document.querySelectorAll('.btn-remove-file').forEach(btn => {
+        btn.onclick = (e) => {
+          e.stopPropagation();
+          const idx = parseInt(btn.dataset.idx);
+          uploadedFiles = uploadedFiles.filter((_, i) => i !== idx);
+          if (uploadedFiles.length === 0) {
+            document.getElementById('file-list').classList.add('hidden');
+            processBtn.disabled = true;
+          } else {
+            renderFileList(uploadedFiles);
+          }
+        };
+      });
+    }
+
+    function showError(msg) {
+      errorMessage.textContent = msg;
+      errorMessage.classList.remove('hidden');
+      errorMessage.classList.remove('bg-amber-50', 'border-amber-200', 'text-amber-800');
+      errorMessage.classList.add('bg-red-50', 'border-red-200', 'text-red-700');
+    }
+    function hideError() {
+      errorMessage.classList.add('hidden');
+    }
+
+    function showToast(message) {
+      const toast = document.createElement('div');
+      toast.className = 'fixed bottom-20 right-4 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg text-sm z-50 transition-opacity';
+      toast.textContent = message;
+      document.body.appendChild(toast);
+      setTimeout(function () {
+        toast.style.opacity = '0';
+        setTimeout(function () {
+          if (toast.parentNode) document.body.removeChild(toast);
+        }, 300);
+      }, 3000);
+    }
+
+    function showLoading(text) {
+      progressIndicator.classList.remove('hidden');
+      progressIndicator.classList.add('flex');
+      const el = document.getElementById('progress-text');
+      if (el) el.textContent = text || 'Processing...';
+    }
+    function updateLoadingText(text) {
+      const el = document.getElementById('progress-text');
+      if (el) el.textContent = text || 'Processing...';
+    }
+    function hideLoading() {
+      progressIndicator.classList.add('hidden');
+      progressIndicator.classList.remove('flex');
+    }
+    function showWarnings(errors) {
+      const msg = errors.map(e => `${e.file}: ${e.error}`).join('\n');
+      const el = document.getElementById('error-message');
+      if (el) {
+        el.textContent = 'Some files had issues:\n' + msg;
+        el.classList.remove('hidden');
+        el.classList.add('bg-amber-50', 'border-amber-200', 'text-amber-800');
+        el.classList.remove('bg-red-50', 'border-red-200', 'text-red-700');
+      }
+    }
+
+    function getGroupKey(group) {
+      return group.po_normalized || group.po_number || '';
+    }
+
+    function getShortFileName(filename) {
+      if (!filename) return '';
+      let name = filename.replace(/\.(pdf|xlsx|xls|txt|csv)$/i, '');
+      const dirMatch = name.match(/\b(East|West|North|South)\b.*?(#\d+)?/i);
+      if (dirMatch) return dirMatch[0].trim().substring(0, 15);
+      const numMatch = name.match(/#\d+/);
+      if (numMatch) return numMatch[0];
+      return name.trim().slice(-15);
+    }
+
+    function combineResults(results) {
+      const poMap = {};  // po_normalized → merged group
+      const combinedNoPOItems = [];
+      let totalCommission = 0;
+      let itemsNeedingReview = 0;
+      const manufacturers = [];
+      const periods = [];
+      const fileNames = [];
+
+      results.forEach(result => {
+        const summary = result.summary || {};
+        manufacturers.push(summary.manufacturer);
+        periods.push(summary.period);
+        fileNames.push(result.file_name || 'Unknown');
+
+        (result.po_groups || []).forEach(group => {
+          const key = group.po_normalized || group.po_number;
+
+          if (poMap[key]) {
+            // Same PO found in another file - merge
+            poMap[key].total_commission += (group.total_commission != null ? group.total_commission : 0);
+            poMap[key].total_sale_amount += (poMap[key].total_sale_amount || 0) + (group.total_sale_amount || 0);
+            poMap[key].line_item_count += (group.line_item_count != null ? group.line_item_count : 0);
+
+            poMap[key].invoice_numbers = [...new Set([
+              ...(poMap[key].invoice_numbers || []),
+              ...(group.invoice_numbers || [])
+            ])];
+            poMap[key].invoice_dates = [...new Set([
+              ...(poMap[key].invoice_dates || []),
+              ...(group.invoice_dates || [])
+            ])];
+            poMap[key].line_items = [
+              ...(poMap[key].line_items || []),
+              ...(group.line_items || [])
+            ];
+
+            if (!poMap[key].source_files) {
+              poMap[key].source_files = [poMap[key].source_file].filter(Boolean);
+            }
+            poMap[key].source_files.push(result.file_name);
+
+            if (group.commission_origination) {
+              poMap[key].commission_origination = (poMap[key].commission_origination || 0) + group.commission_origination;
+            }
+            if (group.commission_specification) {
+              poMap[key].commission_specification = (poMap[key].commission_specification || 0) + group.commission_specification;
+            }
+            if (group.commission_destination) {
+              poMap[key].commission_destination = (poMap[key].commission_destination || 0) + group.commission_destination;
+            }
+
+            if (group.needs_review) poMap[key].needs_review = true;
+            poMap[key].merged_from_multiple_files = true;
+          } else {
+            poMap[key] = {
+              ...group,
+              source_file: result.file_name,
+              source_files: [result.file_name],
+              merged_from_multiple_files: false
+            };
+          }
+        });
+
+        (result.no_po_items || []).forEach(item => {
+          combinedNoPOItems.push({ ...item, source_file: result.file_name });
+        });
+      });
+
+      const combinedPOGroups = Object.values(poMap);
+      combinedPOGroups.forEach(group => {
+        totalCommission += (group.total_commission != null ? group.total_commission : 0);
+        if (group.needs_review) itemsNeedingReview++;
+      });
+
+      return {
+        summary: {
+          manufacturer: [...new Set(manufacturers)].filter(Boolean).join(' + '),
+          period: [...new Set(periods)].filter(Boolean).join(' / '),
+          total_commission: Math.round(totalCommission * 100) / 100,
+          total_pos: combinedPOGroups.length,
+          items_needing_review: itemsNeedingReview,
+          total_no_po: combinedNoPOItems.length,
+          files_processed: results.length,
+          file_names: fileNames
+        },
+        po_groups: combinedPOGroups,
+        no_po_items: combinedNoPOItems,
+        source_results: results
+      };
+    }
+
+    async function processFiles(files) {
+      if (!files || files.length === 0) return;
+      processBtn.disabled = true;
+      showLoading(`Processing ${files.length} file(s)...`);
+      hideError();
+
+      const allResults = [];
+      const errors = [];
+
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        updateLoadingText(`Processing ${i + 1}/${files.length}: ${file.name}`);
+
+        try {
+          const formData = new FormData();
+          formData.append('file', file);
+          const res = await fetch(API_BASE + '/commission/upload', { method: 'POST', body: formData });
+          const result = await res.json();
+
+          if (result.status === 'success' || (!result.status && res.ok)) {
+            allResults.push(result);
+          } else if (result.status === 'duplicate') {
+            errors.push({ file: file.name, error: 'Already processed' });
+          } else {
+            errors.push({ file: file.name, error: result.error || result.detail || 'Failed' });
+          }
+        } catch (err) {
+          errors.push({ file: file.name, error: err.message });
+        }
+      }
+
+      hideLoading();
+      processBtn.disabled = false;
+
+      if (allResults.length === 0) {
+        showError(errors.length ? errors.map(e => `${e.file}: ${e.error}`).join('; ') : 'All files failed to process');
+        return;
+      }
+
+      const combined = allResults.length > 1 ? combineResults(allResults) : allResults[0];
+      if (errors.length > 0) showWarnings(errors);
+
+      resultData = combined;
+      noPOItems = combined.no_po_items || [];
+      poStates = {};
+      poEdits = {};
+      approvedNoPOItems = [];
+      expandedRows.clear();
+      batchApprovedKeys.clear();
+      (combined.po_groups || []).forEach(g => {
+        poStates[getGroupKey(g)] = 'pending';
+      });
+      currentFilter = 'all';
+      renderAll();
+    }
+
+    processBtn.addEventListener('click', () => {
+      if (uploadedFiles.length === 0) return;
+      processFiles(uploadedFiles);
+    });
+
+    // --- Render ---
+    function renderAll() {
+      if (!resultData) return;
+      renderSummary();
+      renderTable();
+      renderNoPo();
+      updateBottomBar();
+      updateFilterButtons();
+      document.getElementById('invoice-search-bar').classList.remove('hidden');
+    }
+
+    function renderSummary() {
+      const s = resultData.summary;
+      document.getElementById('summary-section').classList.remove('hidden');
+      document.getElementById('card-manufacturer').textContent = s.manufacturer || '—';
+      document.getElementById('card-period').textContent = s.period || '—';
+      const fileTotal = s.total_commission != null ? s.total_commission : 0;
+      const summaryCommEl = document.getElementById('summary-total-commission');
+      if (summaryCommEl) {
+        summaryCommEl.textContent = '$' + fileTotal.toLocaleString('en-US', {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2
+        });
+      }
+      document.getElementById('card-pos').textContent = s.total_pos != null ? s.total_pos : 0;
+      document.getElementById('card-review').textContent = s.items_needing_review != null ? s.items_needing_review : 0;
+      const nopoCount = s.total_no_po != null ? s.total_no_po : 0;
+      document.getElementById('card-nopo').textContent = nopoCount > 0 ? `${nopoCount} items need PO assignment` : '0';
+      document.getElementById('card-nopo-hint').classList.toggle('hidden', nopoCount === 0);
+
+      const reviewWrap = document.getElementById('card-review-wrap');
+      const reviewEl = document.getElementById('card-review');
+      if ((s.items_needing_review || 0) > 0) {
+        reviewWrap.classList.add('border-2', 'border-amber-400', 'bg-amber-50');
+        reviewEl.classList.add('text-amber-700');
+      } else {
+        reviewWrap.classList.remove('border-2', 'border-amber-400', 'bg-amber-50');
+        reviewEl.classList.remove('text-amber-700');
+      }
+
+      document.getElementById('card-nopo-wrap').classList.toggle('hidden', nopoCount === 0);
+      if (nopoCount > 0) {
+        document.getElementById('card-nopo-wrap').classList.add('border-2', 'border-amber-400', 'bg-amber-50');
+      } else {
+        document.getElementById('card-nopo-wrap').classList.remove('border-2', 'border-amber-400', 'bg-amber-50');
+      }
+
+      const filesProcessed = s.files_processed != null ? s.files_processed : 0;
+      const cardFilesWrap = document.getElementById('card-files-wrap');
+      const cardFiles = document.getElementById('card-files');
+      if (filesProcessed > 1 && cardFilesWrap && cardFiles) {
+        cardFilesWrap.classList.remove('hidden');
+        cardFiles.textContent = `${filesProcessed} files combined`;
+      } else if (cardFilesWrap) {
+        cardFilesWrap.classList.add('hidden');
+      }
+    }
+
+    function getConfidenceBadgeClass(conf) {
+      if (conf >= 1.0 || conf >= 0.85) return 'badge-green';
+      if (conf >= 0.70) return 'badge-amber';
+      return 'badge-red';
+    }
+
+    function getRowClass(group) {
+      const key = getGroupKey(group);
+      const state = poStates[key] || 'pending';
+      if (state === 'approved') return 'row-approved';
+      if (state === 'skipped') return 'row-skipped';
+      if (group && group.needs_review) return 'row-needs-review';
+      return '';
+    }
+
+    function rowMatchesFilter(group) {
+      const key = getGroupKey(group);
+      const state = poStates[key] || 'pending';
+      if (currentFilter === 'all') return true;
+      if (currentFilter === 'review') return group && group.needs_review;
+      if (currentFilter === 'approved') return state === 'approved';
+      if (currentFilter === 'skipped') return state === 'skipped';
+      return true;
+    }
+
+    function getGroupDisplay(group) {
+      const key = getGroupKey(group);
+      const e = poEdits[key] || {};
+      return {
+        po_number: (e.po_number != null ? e.po_number : group.po_number),
+        dealer_name: (e.dealer_name != null ? e.dealer_name : group.dealer_name),
+        total_commission: (e.total_commission != null ? e.total_commission : group.total_commission)
+      };
+    }
+
+    function renderTable() {
+      document.getElementById('table-section').classList.remove('hidden');
+      const tbody = document.getElementById('po-table-body');
+      tbody.innerHTML = '';
+
+      const currentFileCount = (resultData.summary && resultData.summary.files_processed) || 0;
+      const multiFile = currentFileCount > 1;
+      resultData.po_groups.forEach((group, idx) => {
+        const key = getGroupKey(group);
+        const disp = getGroupDisplay(group);
+        const visible = rowMatchesFilter(group);
+        const rowClass = getRowClass(group);
+        const conf = group.min_confidence != null ? group.min_confidence : 1;
+        const badgeClass = getConfidenceBadgeClass(conf);
+        const state = poStates[key] || 'pending';
+        const isExpanded = expandedRows.has(key);
+        const isEditing = group._editing;
+
+        let sourceBadge = '';
+        if (group.merged_from_multiple_files) {
+          sourceBadge = `<span class="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded ml-1" title="${escapeHtml((group.source_files || []).join(', '))}">Merged ${(group.source_files || []).length} files</span>`;
+        } else if (group.source_file && multiFile) {
+          const shortName = getShortFileName(group.source_file);
+          sourceBadge = `<span class="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded ml-1">${escapeHtml(shortName || group.source_file)}</span>`;
+        }
+
+        const tr = document.createElement('tr');
+        tr.className = `${rowClass} ${visible ? '' : 'hidden'} border-b border-gray-100 hover:bg-gray-50/50 cursor-pointer`;
+        tr.dataset.po = key;
+        tr.dataset.poIdx = idx;
+        tr.onclick = (ev) => {
+          if (ev.target.closest('button') || ev.target.closest('input')) return;
+          toggleExpand(key);
+        };
+
+        let actionsHtml = '';
+        if (state === 'approved') {
+          const approvedLabel = group.edited
+            ? `✅ Approved <span class="text-xs bg-blue-100 text-blue-700 px-1 rounded ml-1">edited</span>`
+            : '✅ Approved';
+          actionsHtml = `<div class="flex flex-wrap gap-1 justify-center items-center" onclick="event.stopPropagation()">
+            <span class="approve-status px-2 py-1 text-xs text-green-700 bg-green-100 rounded">${approvedLabel}</span>
+            <button class="edit-btn px-2 py-1 text-xs rounded bg-gray-100 text-gray-600 hover:bg-gray-200" title="Edit">✏️ Edit</button>
+            <button class="skip-btn px-2 py-1 text-xs rounded bg-gray-100 text-gray-600 hover:bg-gray-200" title="Skip">⏭️ Skip</button>
+            <button class="undo-btn px-2 py-1 text-xs rounded bg-gray-100 text-gray-600 hover:bg-gray-200">Undo</button>
+          </div>`;
+        } else if (state === 'skipped') {
+          actionsHtml = `<div class="flex gap-1 justify-center">
+            <span class="px-2 py-1 text-xs text-gray-600">⏭️ Skipped</span>
+            <button class="undo-btn px-2 py-1 text-xs rounded bg-gray-100 text-gray-600 hover:bg-gray-200">Undo</button>
+          </div>`;
+        } else if (isEditing) {
+          const invVal = (group.invoice_numbers || [])[0];
+          actionsHtml = `<div class="edit-form flex flex-col gap-1 max-w-xs">
+            <div class="edit-field">
+              <label class="text-xs text-gray-500">Dealer</label>
+              <input type="text" class="edit-dealer px-2 py-1 text-xs border rounded w-full" placeholder="Dealer" value="${escapeHtml(disp.dealer_name || '')}" />
+            </div>
+            <div class="edit-field">
+              <label class="text-xs text-gray-500">PO Number</label>
+              <input type="text" class="edit-po px-2 py-1 text-xs border rounded w-full" placeholder="PO Number" value="${escapeHtml(disp.po_number || '')}" />
+            </div>
+            <div class="edit-field">
+              <label class="text-xs text-gray-500">Commission</label>
+              <input type="number" step="0.01" class="edit-commission px-2 py-1 text-xs border rounded w-full" placeholder="Commission" value="${disp.total_commission != null ? disp.total_commission : 0}" />
+            </div>
+            <div class="edit-field">
+              <label class="text-xs text-gray-500">Invoice Number</label>
+              <input type="text" class="edit-invoice-number border rounded px-2 py-1 text-sm w-full" value="${escapeHtml(invVal || '')}" />
+            </div>
+            ${group.has_commission_splits ? `
+            <div class="edit-splits mt-2 p-2 bg-blue-50 rounded">
+              <div class="text-xs font-medium text-blue-700 mb-2">Commission Splits</div>
+              <div class="flex flex-col gap-2">
+                <div class="w-full">
+                  <label class="text-xs text-gray-500">Origination</label>
+                  <input type="number" step="0.01" class="edit-origination border rounded px-2 py-1 text-sm w-full" value="${group.commission_origination != null ? group.commission_origination : ''}" />
+                </div>
+                <div class="w-full">
+                  <label class="text-xs text-gray-500">Specification</label>
+                  <input type="number" step="0.01" class="edit-specification border rounded px-2 py-1 text-sm w-full" value="${group.commission_specification != null ? group.commission_specification : ''}" />
+                </div>
+                <div class="w-full">
+                  <label class="text-xs text-gray-500">Destination</label>
+                  <input type="number" step="0.01" class="edit-destination border rounded px-2 py-1 text-sm w-full" value="${group.commission_destination != null ? group.commission_destination : ''}" />
+                </div>
+              </div>
+              <div class="split-sum-display text-sm font-medium text-green-600 mt-1">Sum: $${((group.commission_origination != null ? group.commission_origination : 0) + (group.commission_specification != null ? group.commission_specification : 0) + (group.commission_destination != null ? group.commission_destination : 0)).toFixed(2)}</div>
+            </div>
+            ` : ''}
+            <div class="flex gap-1">
+              <button class="edit-save px-2 py-1 text-xs rounded bg-green-100 text-green-700 hover:bg-green-200">Save</button>
+              <button class="edit-cancel px-2 py-1 text-xs rounded bg-gray-100 text-gray-600 hover:bg-gray-200">Cancel</button>
+            </div>
+          </div>`;
+        } else {
+          actionsHtml = `<div class="flex gap-1 justify-center" onclick="event.stopPropagation()">
+            <button class="approve-btn px-2 py-1 text-xs rounded bg-green-100 text-green-700 hover:bg-green-200" title="Approve">✅ Approve</button>
+            <button class="edit-btn px-2 py-1 text-xs rounded bg-gray-100 text-gray-600 hover:bg-gray-200" title="Edit">✏️ Edit</button>
+            <button class="skip-btn px-2 py-1 text-xs rounded bg-gray-100 text-gray-600 hover:bg-gray-200" title="Skip">⏭️ Skip</button>
+          </div>`;
+        }
+
+        tr.innerHTML = `
+          <td class="py-2 px-2 text-gray-500">${isExpanded ? '▼' : '▶'}</td>
+          <td class="py-3 px-4 font-medium text-gray-800">${escapeHtml(disp.po_number || '—')}${sourceBadge}</td>
+          <td class="py-3 px-4 text-gray-700">${escapeHtml(disp.dealer_name || '—')}</td>
+          <td class="py-3 px-4 text-right commission-amount">$${(disp.total_commission != null ? disp.total_commission : 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+          <td class="py-3 px-4 text-center text-gray-600">${group.line_item_count != null ? group.line_item_count : 0}</td>
+          <td class="py-3 px-4 text-sm text-gray-600">${escapeHtml((group.invoice_dates || []).slice(0, 3).join(', ') || '—')}</td>
+          <td class="py-3 px-4 text-center">
+            <span class="px-2 py-0.5 rounded text-xs font-medium ${badgeClass}">${(conf * 100).toFixed(0)}%</span>
+            ${group.has_commission_splits ? `<span class="ml-1 px-1.5 py-0.5 text-xs bg-blue-100 text-blue-700 rounded">O+S+D</span>` : ''}
+          </td>
+          <td class="py-3 px-4 text-sm text-gray-600">${escapeHtml((group.all_issues || []).join(', ') || '—')}</td>
+          <td class="py-3 px-4" onclick="event.stopPropagation()">${actionsHtml}</td>
+        `;
+
+        if (state === 'approved' || state === 'skipped') {
+          tr.querySelector('.undo-btn').onclick = (e) => {
+            e.stopPropagation();
+            undoApprove(key, idx);
+          };
+          if (state === 'approved') {
+            tr.querySelector('.edit-btn').onclick = (e) => {
+              e.stopPropagation();
+              group._editing = true;
+              renderTable();
+            };
+            tr.querySelector('.skip-btn').onclick = (e) => {
+              e.stopPropagation();
+              setState(key, 'skipped');
+              renderTable();
+              renderActionBar();
+            };
+          }
+        } else if (isEditing) {
+          // FIX 1: Live update Total when splits change
+          const form = tr.querySelector('.edit-form');
+          const origInput = form.querySelector('.edit-origination');
+          const specInput = form.querySelector('.edit-specification');
+          const destInput = form.querySelector('.edit-destination');
+          const commInput = form.querySelector('.edit-commission');
+
+          function recalcTotal() {
+            const orig = parseFloat(origInput && origInput.value) || 0;
+            const spec = parseFloat(specInput && specInput.value) || 0;
+            const dest = parseFloat(destInput && destInput.value) || 0;
+            const newTotal = orig + spec + dest;
+
+            if (commInput) commInput.value = newTotal.toFixed(2);
+
+            const splitSumEl = form.querySelector('.split-sum-display');
+            if (splitSumEl) {
+              splitSumEl.textContent = `Sum: $${newTotal.toFixed(2)}`;
+              splitSumEl.style.color = '#16a34a';
+            }
+          }
+
+          if (origInput) origInput.addEventListener('input', recalcTotal);
+          if (specInput) specInput.addEventListener('input', recalcTotal);
+          if (destInput) destInput.addEventListener('input', recalcTotal);
+          if (group.has_commission_splits) recalcTotal();  // Sync Total to split sum on init
+
+          tr.querySelector('.edit-save').onclick = () => {
+            const newDealer = form.querySelector('.edit-dealer').value.trim();
+            const newPO = form.querySelector('.edit-po').value.trim();
+            const invEl = form.querySelector('.edit-invoice-number');
+            const newInvoice = (invEl && invEl.value) ? invEl.value.trim() : undefined;
+            const origEl = form.querySelector('.edit-origination');
+            const specEl = form.querySelector('.edit-specification');
+            const destEl = form.querySelector('.edit-destination');
+            const orig = parseFloat(origEl && origEl.value) || 0;
+            const spec = parseFloat(specEl && specEl.value) || 0;
+            const dest = parseFloat(destEl && destEl.value) || 0;
+
+            // FIX 2: Calculate new total from splits (splits drive total for split groups)
+            const newTotal = orig + spec + dest;
+            const poGroups = resultData.po_groups;
+            const newCommission = group.has_commission_splits
+              ? newTotal
+              : (parseFloat(form.querySelector('.edit-commission').value) || (group.total_commission != null ? group.total_commission : 0));
+
+            // Find index of group in poGroups and update in place
+            const gIdx = poGroups.findIndex(g => getGroupKey(g) === key);
+            if (gIdx === -1) {
+              console.warn('Group not found in poGroups');
+              return;
+            }
+            const targetGroup = poGroups[gIdx];
+            targetGroup.dealer_name = newDealer;
+            targetGroup.po_number = newPO;
+            targetGroup.total_commission = newCommission;
+            targetGroup.invoice_numbers = newInvoice ? [newInvoice] : targetGroup.invoice_numbers;
+            targetGroup.status = 'approved';
+            targetGroup.edited = true;
+            if (targetGroup.has_commission_splits) {
+              targetGroup.commission_origination = orig;
+              targetGroup.commission_specification = spec;
+              targetGroup.commission_destination = dest;
+            }
+            delete targetGroup._editing;
+
+            poEdits[key] = {
+              dealer_name: newDealer,
+              po_number: newPO,
+              total_commission: newCommission
+            };
+            poStates[key] = 'approved';
+
+            // Update the row commission display
+            const commEl = tr.querySelector('.commission-amount');
+            if (commEl) {
+              commEl.textContent = '$' + newCommission.toLocaleString('en-US', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+              });
+            }
+
+            // Re-render to exit edit mode and apply approved styling
+            renderTable();
+            renderActionBar();
+          };
+          tr.querySelector('.edit-cancel').onclick = () => {
+            delete group._editing;
+            renderTable();
+          };
+        } else {
+          tr.querySelector('.approve-btn').onclick = (e) => { e.stopPropagation(); setState(key, 'approved'); updateRowActions(); renderActionBar(); };
+          tr.querySelector('.edit-btn').onclick = (e) => { e.stopPropagation(); group._editing = true; renderTable(); };
+          tr.querySelector('.skip-btn').onclick = (e) => { e.stopPropagation(); setState(key, 'skipped'); updateRowActions(); renderActionBar(); };
+        }
+
+        tbody.appendChild(tr);
+
+        if (isExpanded) {
+          const expandTr = document.createElement('tr');
+          expandTr.className = `${rowClass} ${visible ? '' : 'hidden'}`;
+          expandTr.dataset.po = key;
+          expandTr.dataset.poIdx = idx;
+          expandTr.dataset.expand = '1';
+          const items = group.line_items || [];
+          const disp = getGroupDisplay(group);
+          let tableHtml = '';
+          if (items.length) {
+            tableHtml += '<table class="w-full text-sm"><thead><tr class="text-xs text-gray-500 border-b">';
+            tableHtml += '<th class="text-left py-1 px-2">Invoice #</th>';
+            tableHtml += '<th class="text-left py-1 px-2">Date</th>';
+            tableHtml += '<th class="text-right py-1 px-2">Sale Amount</th>';
+            tableHtml += '<th class="text-right py-1 px-2">Rate</th>';
+            tableHtml += '<th class="text-right py-1 px-2">Commission</th>';
+            tableHtml += '</tr></thead><tbody>';
+            items.forEach(function (li) {
+              const rate = parseFloat(li.commission_rate != null ? li.commission_rate : 0).toFixed(2).replace(/\.?0+$/, '');
+              tableHtml += '<tr class="border-b border-gray-100">';
+              tableHtml += '<td class="py-1 px-2 font-mono">' + escapeHtml(li.invoice_number || 'N/A') + '</td>';
+              tableHtml += '<td class="py-1 px-2">' + escapeHtml(li.invoice_date || 'N/A') + '</td>';
+              tableHtml += '<td class="py-1 px-2 text-right">$' + (li.sale_amount != null ? li.sale_amount : 0).toLocaleString('en-US', { minimumFractionDigits: 2 }) + '</td>';
+              tableHtml += '<td class="py-1 px-2 text-right">' + rate + '%</td>';
+              tableHtml += '<td class="py-1 px-2 text-right text-green-600 font-medium">$' + (li.commission_amount != null ? li.commission_amount : 0).toFixed(2) + '</td>';
+              tableHtml += '</tr>';
+            });
+            tableHtml += '</tbody></table>';
+            if (group.has_commission_splits) {
+              const orig = group.commission_origination != null ? group.commission_origination : 0;
+              const spec = group.commission_specification != null ? group.commission_specification : 0;
+              const dest = group.commission_destination != null ? group.commission_destination : 0;
+              const total = disp.total_commission != null ? disp.total_commission : group.total_commission || 0;
+              tableHtml += '<div class="mt-3 p-3 bg-blue-50 rounded-lg">';
+              tableHtml += '<div class="text-xs font-semibold text-blue-700 mb-2">Commission Splits (Group Total)</div>';
+              tableHtml += '<div class="grid grid-cols-4 gap-3">';
+              tableHtml += '<div class="text-center"><div class="text-xs text-gray-500">Origination</div><div class="font-semibold text-gray-800">$' + orig.toFixed(2) + '</div></div>';
+              tableHtml += '<div class="text-center"><div class="text-xs text-gray-500">Specification</div><div class="font-semibold text-gray-800">$' + spec.toFixed(2) + '</div></div>';
+              tableHtml += '<div class="text-center"><div class="text-xs text-gray-500">Destination</div><div class="font-semibold text-gray-800">$' + dest.toFixed(2) + '</div></div>';
+              tableHtml += '<div class="text-center"><div class="text-xs text-gray-500">Total</div><div class="font-semibold text-green-600">$' + (total != null ? total : 0).toFixed(2) + '</div></div>';
+              tableHtml += '</div></div>';
+            }
+          } else {
+            tableHtml = '<p class="text-gray-500 py-2">No line items available</p>';
+          }
+          expandTr.innerHTML = '<td colspan="9" class="py-0 px-4 bg-gray-50 border-b border-gray-100"><div class="py-3 text-xs overflow-x-auto">' + tableHtml + '</div></td>';
+          tbody.appendChild(expandTr);
+        }
+      });
+    }
+
+    function toggleExpand(poNorm) {
+      if (expandedRows.has(poNorm)) expandedRows.delete(poNorm);
+      else expandedRows.add(poNorm);
+      renderTable();
+    }
+
+    function updateRowActions() {
+      resultData.po_groups.forEach((g, idx) => {
+        const key = getGroupKey(g);
+        const tr = document.querySelector(`tr[data-po="${escapeCssAttr(key)}"]:not([data-expand])`);
+        if (!tr) return;
+        const state = poStates[key] || 'pending';
+        const actionCell = tr.querySelector('td:last-child');
+        if (!actionCell) return;
+        if (state === 'approved') {
+          const approvedLabel = g.edited
+            ? `✅ Approved <span class="text-xs bg-blue-100 text-blue-700 px-1 rounded ml-1">edited</span>`
+            : '✅ Approved';
+          actionCell.innerHTML = `<div class="flex flex-wrap gap-1 justify-center items-center" onclick="event.stopPropagation()">
+            <span class="approve-status px-2 py-1 text-xs text-green-700 bg-green-100 rounded">${approvedLabel}</span>
+            <button class="edit-btn px-2 py-1 text-xs rounded bg-gray-100 text-gray-600 hover:bg-gray-200" title="Edit">✏️ Edit</button>
+            <button class="skip-btn px-2 py-1 text-xs rounded bg-gray-100 text-gray-600 hover:bg-gray-200" title="Skip">⏭️ Skip</button>
+            <button class="undo-btn px-2 py-1 text-xs rounded bg-gray-100 text-gray-600 hover:bg-gray-200">Undo</button>
+          </div>`;
+          actionCell.querySelector('.undo-btn').onclick = (e) => { e.stopPropagation(); undoApprove(key, idx); };
+          actionCell.querySelector('.edit-btn').onclick = (e) => { e.stopPropagation(); g._editing = true; renderTable(); };
+          actionCell.querySelector('.skip-btn').onclick = (e) => { e.stopPropagation(); setState(key, 'skipped'); renderTable(); renderActionBar(); };
+        } else if (state === 'skipped') {
+          actionCell.innerHTML = `<div class="flex gap-1 justify-center" onclick="event.stopPropagation()">
+            <span class="px-2 py-1 text-xs text-gray-600">⏭️ Skipped</span>
+            <button class="undo-btn px-2 py-1 text-xs rounded bg-gray-100 text-gray-600 hover:bg-gray-200">Undo</button>
+          </div>`;
+          actionCell.querySelector('.undo-btn').onclick = (e) => { e.stopPropagation(); undoApprove(key, idx); };
+        }
+      });
+    }
+
+    function escapeCssAttr(s) {
+      if (!s) return '';
+      return String(s).replace(/"/g, '\\"');
+    }
+
+    function undoApprove(key, groupIdx) {
+      poStates[key] = 'pending';
+      batchApprovedKeys.delete(key);
+      const group = resultData.po_groups[groupIdx];
+      if (group) {
+        group.edited = false;
+      }
+      renderTable();
+      renderActionBar();
+    }
+
+    function setState(key, state) {
+      poStates[key] = state;
+      resultData.po_groups.forEach(g => {
+        const k = getGroupKey(g);
+        if (k !== key) return;
+        document.querySelectorAll(`tr[data-po="${escapeCssAttr(k)}"]`).forEach(tr => {
+          tr.className = tr.className.replace(/row-\w+/g, '').trim();
+          tr.classList.add(getRowClass(g));
+          if (!rowMatchesFilter(g)) tr.classList.add('hidden');
+          else tr.classList.remove('hidden');
+        });
+      });
+      renderActionBar();
+    }
+
+    function escapeHtml(s) {
+      if (!s) return '';
+      const d = document.createElement('div');
+      d.textContent = s;
+      return d.innerHTML;
+    }
+
+    function updateFilterButtons() {
+      document.querySelectorAll('.filter-btn').forEach(btn => {
+        const active = btn.dataset.filter === currentFilter;
+        btn.className = 'filter-btn px-3 py-1.5 rounded-lg text-sm font-medium ' + (active ? 'bg-primary text-white' : 'text-gray-600 hover:bg-gray-200');
+      });
+    }
+
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        currentFilter = btn.dataset.filter;
+        updateFilterButtons();
+        resultData.po_groups.forEach(g => {
+          const key = getGroupKey(g);
+          document.querySelectorAll(`tr[data-po="${escapeCssAttr(key)}"]`).forEach(tr => {
+            if (rowMatchesFilter(g)) tr.classList.remove('hidden');
+            else tr.classList.add('hidden');
+          });
+        });
+      });
+    });
+
+    function renderNoPo() {
+      if (noPOItems.length > 0) {
+        document.getElementById('no-po-section').style.display = 'block';
+        renderNoPOItems(noPOItems);
+      } else {
+        document.getElementById('no-po-section').style.display = 'none';
+      }
+    }
+
+    function updateBottomBar() {
+      if (!resultData) return;
+      renderActionBar();
+    }
+
+    function renderNoPOItems(items) {
+      const container = document.getElementById('no-po-items-container');
+      const countEl = document.getElementById('no-po-count');
+      if (!container) return;
+
+      if (countEl) countEl.textContent = items.length;
+      container.innerHTML = '';
+
+      items.forEach((item, idx) => {
+        const div = document.createElement('div');
+        div.className = 'border border-amber-200 bg-amber-50 rounded-lg p-4 mb-3';
+        div.dataset.idx = idx;
+
+        div.innerHTML = `
+          <div class="flex items-start justify-between mb-3">
+            <div>
+              <div class="font-medium text-gray-800">${escapeHtml(item.dealer_name || 'Unknown Dealer')}</div>
+              <div class="text-sm text-gray-500 mt-1">Commission: <span class="font-medium text-green-600">$${(item.commission_amount || 0).toFixed(2)}</span></div>
+              <div class="text-sm text-gray-500">Invoice #: <span class="font-mono font-medium">${escapeHtml(item.invoice_number || 'N/A')}</span></div>
+              <div class="text-sm text-gray-500">Date: ${escapeHtml(item.invoice_date || 'N/A')}</div>
+            </div>
+            <span class="text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded font-medium">No PO Number</span>
+          </div>
+          <div class="flex gap-2 flex-wrap">
+            ${item.invoice_number ? `
+            <button class="btn-use-invoice px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700" data-idx="${idx}" data-invoice="${escapeHtml(item.invoice_number)}">✅ Use Invoice # as PO (${escapeHtml(item.invoice_number)})</button>
+            ` : ''}
+            <button class="btn-enter-manual px-3 py-1.5 text-sm border border-gray-300 bg-white rounded hover:bg-gray-50" data-idx="${idx}">✏️ Enter PO manually</button>
+            <button class="btn-skip-nopo px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700" data-idx="${idx}">⏭️ Skip</button>
+          </div>
+          <div class="manual-po-form hidden mt-3 flex gap-2">
+            <input type="text" class="manual-po-input border rounded px-3 py-1.5 text-sm w-48" placeholder="Enter PO number...">
+            <button class="btn-save-manual px-3 py-1.5 text-sm bg-green-600 text-white rounded" data-idx="${idx}">Save</button>
+          </div>
+        `;
+
+        container.appendChild(div);
+
+        const useBtn = div.querySelector('.btn-use-invoice');
+        if (useBtn) {
+          useBtn.addEventListener('click', () => {
+            const invoice = useBtn.dataset.invoice;
+            noPOItems[idx].po_number = invoice;
+            noPOItems[idx].po_source = 'invoice_used_as_po';
+            approvedNoPOItems.push(noPOItems[idx]);
+            div.innerHTML = `<div class="flex items-center gap-2 text-green-700"><span>✅</span><span class="font-medium">${escapeHtml(item.dealer_name || '')}</span><span class="text-sm">PO set to invoice <span class="font-mono font-medium">${escapeHtml(invoice)}</span></span><span class="text-sm font-medium text-green-600">$${(item.commission_amount || 0).toFixed(2)}</span></div>`;
+            updateBottomBar();
+          });
+        }
+
+        div.querySelector('.btn-enter-manual').addEventListener('click', () => {
+          div.querySelector('.manual-po-form').classList.remove('hidden');
+        });
+
+        div.querySelector('.btn-save-manual').addEventListener('click', () => {
+          const po = div.querySelector('.manual-po-input').value.trim();
+          if (!po) return;
+          noPOItems[idx].po_number = po;
+          noPOItems[idx].po_source = 'manually_entered';
+          approvedNoPOItems.push(noPOItems[idx]);
+          div.innerHTML = `<div class="flex items-center gap-2 text-green-700"><span>✅</span><span class="font-medium">${escapeHtml(item.dealer_name || '')}</span><span class="text-sm">PO manually set to <span class="font-mono font-medium">${escapeHtml(po)}</span></span><span class="text-sm font-medium text-green-600">$${(item.commission_amount || 0).toFixed(2)}</span></div>`;
+          updateBottomBar();
+        });
+
+        div.querySelector('.btn-skip-nopo').addEventListener('click', () => {
+          div.style.opacity = '0.4';
+          div.querySelectorAll('button').forEach(b => b.disabled = true);
+          const lastDiv = div.querySelector('.flex.gap-2');
+          if (lastDiv) lastDiv.innerHTML = '<span class="text-sm text-gray-400">Skipped</span>';
+          updateBottomBar();
+        });
+      });
+    }
+
+    function renderActionBar() {
+      if (!resultData) return;
+
+      const poGroups = resultData.po_groups || [];
+      const approvedPOs = poGroups.filter(
+        g => poStates[getGroupKey(g)] === 'approved'
+      );
+
+      // Sum commission from approved PO groups
+      const poTotal = approvedPOs.reduce(
+        (sum, g) => sum + (getGroupDisplay(g).total_commission != null ? getGroupDisplay(g).total_commission : 0),
+        0
+      );
+
+      // Sum commission from approved no-PO items (Use Invoice as PO, Enter manually)
+      const noPOTotal = approvedNoPOItems.reduce(
+        (sum, item) => sum + (item.commission_amount != null ? item.commission_amount : (item.total_commission != null ? item.total_commission : 0)),
+        0
+      );
+
+      const totalApproved = approvedPOs.length + approvedNoPOItems.length;
+      const totalCommission = poTotal + noPOTotal;
+
+      const skipped = Object.values(poStates).filter(s => s === 'skipped').length;
+      const pending = poGroups.length - approvedPOs.length - skipped;
+
+      document.getElementById('action-bar').classList.remove('hidden');
+      document.getElementById('action-bar-spacer').classList.remove('hidden');
+      document.getElementById('bar-approved').textContent = totalApproved;
+      document.getElementById('bar-skipped').textContent = skipped;
+      document.getElementById('bar-pending').textContent = pending;
+      const approvedAmtEl = document.getElementById('approved-amount');
+      if (approvedAmtEl) {
+        approvedAmtEl.textContent =
+          '$' + totalCommission.toLocaleString('en-US', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+          }) + ' approved';
+      }
+
+      const exportCsvBtn = document.getElementById('export-csv-btn');
+      const fileSalesforceBtn = document.getElementById('file-salesforce-btn');
+      if (exportCsvBtn) exportCsvBtn.disabled = totalApproved < 1;
+      if (fileSalesforceBtn) fileSalesforceBtn.disabled = totalApproved < 1;
+    }
+
+    // Approve All Clean
+    document.getElementById('approve-all-clean-btn').addEventListener('click', () => {
+      batchApprovedKeys.clear();
+      resultData.po_groups.forEach(g => {
+        const key = getGroupKey(g);
+        if (!g.needs_review && (poStates[key] || 'pending') === 'pending') {
+          poStates[key] = 'approved';
+          batchApprovedKeys.add(key);
+        }
+      });
+      renderTable();
+      renderActionBar();
+      const undoAllBtn = document.getElementById('undo-all-btn');
+      if (undoAllBtn && batchApprovedKeys.size > 0) {
+        undoAllBtn.style.display = 'inline-block';
+      }
+    });
+
+    // Undo All (revert batch-approved rows)
+    document.getElementById('undo-all-btn').addEventListener('click', () => {
+      batchApprovedKeys.forEach(key => {
+        poStates[key] = 'pending';
+        const g = resultData.po_groups.find(gr => getGroupKey(gr) === key);
+        if (g) g.edited = false;
+      });
+      batchApprovedKeys.clear();
+      const undoAllBtn = document.getElementById('undo-all-btn');
+      if (undoAllBtn) undoAllBtn.style.display = 'none';
+      renderTable();
+      renderActionBar();
+    });
+
+    // Invoice search
+    document.getElementById('invoice-search-btn').addEventListener('click', () => {
+      const query = document.getElementById('invoice-search-input').value.trim().toLowerCase();
+      if (!query || !resultData) return;
+      const poGroups = resultData.po_groups || [];
+      let matchCount = 0;
+      poGroups.forEach((group, idx) => {
+        const invoices = (group.invoice_numbers || []).map(i => String(i).toLowerCase());
+        const matches = invoices.some(inv => inv.includes(query));
+        const rows = document.querySelectorAll(`tr[data-po-idx="${idx}"]`);
+        rows.forEach(row => {
+          if (matches) {
+            row.style.display = '';
+            row.style.background = '#fef9c3';
+          } else {
+            row.style.display = 'none';
+          }
+        });
+        if (matches) matchCount++;
+      });
+      document.getElementById('invoice-search-result').textContent = matchCount > 0
+        ? `Found ${matchCount} PO group(s)`
+        : 'No matches found';
+    });
+
+    document.getElementById('invoice-search-clear').addEventListener('click', () => {
+      document.getElementById('invoice-search-input').value = '';
+      document.getElementById('invoice-search-result').textContent = '';
+      document.querySelectorAll('tr[data-po-idx]').forEach(row => {
+        row.style.display = '';
+        row.style.background = '';
+      });
+    });
+
+    // Export CSV
+    document.getElementById('export-csv-btn').addEventListener('click', async function () {
+      if (!resultData) return;
+      const poGroups = resultData.po_groups || [];
+      const approved = poGroups.filter(function (g) {
+        return poStates[getGroupKey(g)] === 'approved';
+      });
+      if (approved.length === 0 && approvedNoPOItems.length === 0) {
+        alert('No approved items to export');
+        return;
+      }
+      const summaryData = resultData.summary || {};
+      const approvedGroups = approved.map(function (g) {
+        const key = getGroupKey(g);
+        const e = poEdits[key] || {};
+        return {
+          po_number: (e.po_number != null ? e.po_number : g.po_number),
+          dealer_name: (e.dealer_name != null ? e.dealer_name : g.dealer_name),
+          total_commission: (e.total_commission != null ? e.total_commission : g.total_commission),
+          total_sale_amount: g.total_sale_amount != null ? g.total_sale_amount : 0,
+          invoice_numbers: g.invoice_numbers || [],
+          invoice_dates: g.invoice_dates || [],
+          line_items: g.line_items || [],
+          commission_origination: g.commission_origination,
+          commission_specification: g.commission_specification,
+          commission_destination: g.commission_destination,
+          source_file: g.source_file,
+          po_source: 'extracted'
+        };
+      });
+      const nopoAsPos = approvedNoPOItems.map(function (item) {
+        return {
+          po_number: item.po_number,
+          po_source: item.po_source,
+          dealer_name: item.dealer_name,
+          total_commission: (item.commission_amount != null ? item.commission_amount : (item.total_commission != null ? item.total_commission : 0)),
+          total_sale_amount: (item.sale_amount != null ? item.sale_amount : (item.total_sale_amount != null ? item.total_sale_amount : 0)),
+          invoice_numbers: [item.invoice_number].filter(Boolean),
+          invoice_dates: [item.invoice_date].filter(Boolean),
+          commission_origination: null,
+          commission_specification: null,
+          commission_destination: null,
+          source_file: item.source_file
+        };
+      });
+      const payload = {
+        manufacturer: summaryData.manufacturer != null ? summaryData.manufacturer : '',
+        period: summaryData.period != null ? summaryData.period : '',
+        approved_pos: approvedGroups.concat(nopoAsPos)
+      };
+      try {
+        const response = await fetch(API_BASE + '/commission/export-csv', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (!response.ok) throw new Error('Export failed');
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const disposition = response.headers.get('Content-Disposition');
+        const filenameMatch = disposition != null ? disposition.match(/filename="(.+)"/) : null;
+        a.download = filenameMatch ? filenameMatch[1] : 'commission_export.csv';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showToast('Exported ' + payload.approved_pos.length + ' POs to CSV');
+      } catch (err) {
+        alert('Export failed: ' + (err.message || err));
+      }
+    });
+
+    // File to Salesforce modal
+    document.getElementById('file-salesforce-btn').addEventListener('click', function () {
+      const approved = resultData.po_groups.filter(g => poStates[getGroupKey(g)] === 'approved');
+      const poTotal = approved.reduce((sum, g) => sum + (getGroupDisplay(g).total_commission != null ? getGroupDisplay(g).total_commission : 0), 0);
+      const nopoTotal = approvedNoPOItems.reduce((sum, i) => sum + (i.commission_amount != null ? i.commission_amount : 0), 0);
+      const total = poTotal + nopoTotal;
+      const count = approved.length + approvedNoPOItems.length;
+      document.getElementById('file-modal-text').textContent = `Filing ${count} POs totaling $${total.toLocaleString('en-US', { minimumFractionDigits: 2 })} to Salesforce`;
+      document.getElementById('file-modal').classList.remove('hidden');
+    });
+
+    document.getElementById('file-modal-cancel').addEventListener('click', () => {
+      document.getElementById('file-modal').classList.add('hidden');
+    });
+
+    document.getElementById('file-modal-confirm').addEventListener('click', async () => {
+      document.getElementById('file-modal').classList.add('hidden');
+      const approved = resultData.po_groups.filter(g => poStates[getGroupKey(g)] === 'approved');
+      const approvedGroups = approved.map(g => {
+        const key = getGroupKey(g);
+        const e = poEdits[key] || {};
+        const out = {
+          ...g,
+          dealer_name: (e.dealer_name != null ? e.dealer_name : g.dealer_name),
+          po_number: (e.po_number != null ? e.po_number : g.po_number),
+          total_commission: (e.total_commission != null ? e.total_commission : g.total_commission),
+          source_file: g.source_file
+        };
+        if (g.source_files && g.source_files.length) out.source_files = g.source_files;
+        return out;
+      });
+      const nopoAsPos = approvedNoPOItems.map(item => ({
+        po_number: item.po_number,
+        po_source: item.po_source,
+        dealer_name: item.dealer_name,
+        total_commission: (item.commission_amount != null ? item.commission_amount : (item.total_commission != null ? item.total_commission : 0)),
+        total_sale_amount: (item.sale_amount != null ? item.sale_amount : (item.total_sale_amount != null ? item.total_sale_amount : 0)),
+        invoice_numbers: [item.invoice_number].filter(Boolean),
+        invoice_dates: [item.invoice_date].filter(Boolean),
+        source_file: item.source_file
+      }));
+      const summaryData = resultData.summary || {};
+      const payload = {
+        manufacturer: summaryData.manufacturer,
+        period: summaryData.period,
+        document_hash: resultData.document_hash,
+        file_name: resultData.file_name,
+        approved_pos: [...approvedGroups, ...nopoAsPos]
+      };
+      try {
+        const fileResponse = await fetch(API_BASE + '/commission/file', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const resp = await fileResponse.json();
+        if (!fileResponse.ok) throw new Error(resp.detail || fileResponse.statusText);
+      } catch (err) {
+        alert(err.message || 'Filing failed');
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spreadsheet Intelligence</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-white min-h-screen font-sans text-gray-800">
+  <div class="max-w-6xl mx-auto px-4 py-8">
+    <h1 class="text-2xl font-semibold text-gray-900 mb-8">Spreadsheet Intelligence</h1>
+
+    <!-- SECTION 1 - File Upload -->
+    <section class="mb-10">
+      <div id="dropZone" class="border-2 border-dashed border-gray-300 rounded-xl p-12 text-center cursor-pointer hover:border-blue-400 hover:bg-gray-50 transition-colors">
+        <input type="file" id="fileInput" class="hidden" accept=".xlsx,.xls,.xlsm,.xlsb,.csv,.tsv,.ods" />
+        <p id="dropText" class="text-gray-500">Drag and drop your spreadsheet here, or click to browse</p>
+        <p class="text-sm text-gray-400 mt-2">Accepted: .xlsx .xls .xlsm .xlsb .csv .tsv .ods</p>
+      </div>
+      <div id="uploadStatus" class="hidden mt-4"></div>
+      <div id="uploadResult" class="hidden mt-4 p-4 bg-green-50 rounded-lg"></div>
+    </section>
+
+    <div id="hitl-section" style="display:none" class="mx-auto max-w-6xl px-4 mb-6">
+      <div class="bg-white border border-gray-200 rounded-lg shadow-sm p-6">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h2 class="text-lg font-semibold text-gray-800">🔍 Review Required</h2>
+            <p class="text-sm text-gray-500 mt-1">Help us understand your data better before analysis begins</p>
+          </div>
+          <div class="text-sm text-gray-500">
+            <span id="hitl-confirmed-count">0</span> of <span id="hitl-total-count">0</span> confirmed
+          </div>
+        </div>
+        <div class="w-full bg-gray-100 rounded-full h-2 mb-6">
+          <div id="hitl-progress-bar" class="bg-indigo-500 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+        </div>
+        <div id="hitl-cards" class="space-y-4"></div>
+        <div class="flex gap-3 mt-6">
+          <button id="hitl-skip-btn" class="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50 cursor-pointer">⏭️ Skip All - Use AI Defaults</button>
+          <button id="hitl-submit-btn" disabled class="px-4 py-2 bg-indigo-500 text-white rounded-lg text-sm cursor-pointer disabled:bg-gray-300 disabled:cursor-not-allowed">✅ Submit and Continue to Analysis</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="analysis-section" style="display:none">
+    <!-- SECTION 2 - Two Panels -->
+    <section class="grid md:grid-cols-2 gap-6 mb-10">
+      <div class="bg-white rounded-xl shadow-md p-6 border border-gray-100">
+        <h2 class="font-semibold text-gray-800 mb-4">Sheets Detected</h2>
+        <div id="sheetsList" class="space-y-4"></div>
+      </div>
+      <div class="bg-white rounded-xl shadow-md p-6 border border-gray-100">
+        <h2 class="font-semibold text-gray-800 mb-4">Data Quality</h2>
+        <div id="qualityPanel"></div>
+      </div>
+    </section>
+
+    <div id="connections-panel" style="display:none" class="bg-white border border-gray-200 rounded-lg shadow-sm p-6 mb-6">
+      <h2 class="text-base font-semibold text-gray-800 mb-4">🔗 Confirmed Connections</h2>
+      <p class="text-sm text-gray-500 mb-4">Relationships verified by you during review</p>
+      <canvas id="connections-canvas" width="800" height="300" class="w-full"></canvas>
+      <div id="connections-list" class="mt-4 space-y-2"></div>
+    </div>
+
+    <!-- SECTION 3 - Chat -->
+    <section class="bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden">
+      <h2 class="font-semibold text-gray-800 p-4 border-b">Ask anything about your data</h2>
+      <div id="chatHistory" class="h-80 overflow-y-auto p-4 space-y-4"></div>
+      <div id="typingIndicator" class="hidden px-4 pb-2">
+        <span class="inline-flex gap-1"><span class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay:0ms"></span><span class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay:150ms"></span><span class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay:300ms"></span></span>
+      </div>
+      <div class="p-4 border-t flex gap-2">
+        <input type="text" id="chatInput" placeholder="Ask a question..." class="flex-1 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-400 focus:border-transparent" />
+        <button id="sendBtn" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Send</button>
+      </div>
+    </section>
+    </div>
+  </div>
+
+  <script>
+const API_BASE = 'http://localhost:8000';
+(function () {
+  "use strict";
+
+  var workbookId = null;
+  var currentWorkbookId = null;
+  var currentConversationId = null;
+  var ENTITY_COLORS = ["blue", "green", "purple", "teal", "orange", "pink", "yellow"];
+
+  const HITL_ICONS = {
+    same_metric_across_sheets: "🔗",
+    column_identity: "🔗",
+    date_format: "📅",
+    unit_scale: "💰",
+    low_confidence_sheet: "🤔"
+  };
+  var hitlDecisions = {};
+  var hitlTotalItems = 0;
+
+  function updateStatus(message, type) {
+    var result = document.getElementById("uploadResult");
+    result.classList.remove("hidden");
+    result.innerHTML = escapeHtml(message);
+  }
+
+  function showAnalysis() {
+    document.getElementById("analysis-section").style.display = "block";
+    if (currentWorkbookId) {
+      loadAndRenderConnections(currentWorkbookId);
+    }
+  }
+
+  async function loadAndRenderConnections(workbookId) {
+    try {
+      var res = await fetch(
+        API_BASE + "/workbooks/" + workbookId + "/review-status"
+      );
+      var status = await res.json();
+      if (status.connections_confirmed === 0) {
+        return;
+      }
+      var connRes = await fetch(
+        API_BASE + "/workbooks/" + workbookId + "/connections"
+      );
+      var data = await connRes.json();
+      if (!data.connections || data.connections.length === 0) {
+        return;
+      }
+      document.getElementById("connections-panel").style.display = "block";
+      renderConnectionsList(data.connections);
+      renderConnectionsGraph(data.connections);
+    } catch (err) {
+      console.error("Connections load error:", err);
+    }
+  }
+
+  function renderConnectionsList(connections) {
+    var container = document.getElementById("connections-list");
+    container.innerHTML = "";
+    connections.forEach(function(conn) {
+      var item = document.createElement("div");
+      item.className = "flex items-center gap-2 text-sm p-2 bg-gray-50 rounded";
+      var typeIcon = conn.connection_type === "same_metric" ? "\uD83D\uDCCA" : "\uD83D\uDD11";
+      item.innerHTML =
+        "<span>" + typeIcon + "</span>" +
+        "<span class=\"font-mono text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded\">" +
+        escapeHtml(conn.sheet_1) + "</span>" +
+        "<span class=\"text-gray-400 font-bold\">\u2194</span>" +
+        "<span class=\"font-mono text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded\">" +
+        escapeHtml(conn.sheet_2) + "</span>" +
+        "<span class=\"text-gray-500 text-xs ml-1\">via \"" + escapeHtml(conn.identifier_1) + "\"</span>" +
+        "<span class=\"ml-auto text-xs text-green-600 font-medium\">\u2713 verified</span>";
+      container.appendChild(item);
+    });
+  }
+
+  function renderConnectionsGraph(connections) {
+    var canvas = document.getElementById("connections-canvas");
+    var ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    var sheets = new Set();
+    connections.forEach(function(c) {
+      sheets.add(c.sheet_1);
+      sheets.add(c.sheet_2);
+    });
+    var sheetList = Array.from(sheets);
+    if (sheetList.length === 0) return;
+    var centerX = canvas.width / 2;
+    var centerY = canvas.height / 2;
+    var radius = Math.min(centerX, centerY) - 60;
+    var positions = {};
+    sheetList.forEach(function(sheet, i) {
+      var angle = (i / sheetList.length) * Math.PI * 2 - Math.PI / 2;
+      positions[sheet] = {
+        x: centerX + radius * Math.cos(angle),
+        y: centerY + radius * Math.sin(angle)
+      };
+    });
+    connections.forEach(function(conn) {
+      var from = positions[conn.sheet_1];
+      var to = positions[conn.sheet_2];
+      if (!from || !to) return;
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
+      ctx.strokeStyle = conn.connection_type === "same_metric" ? "#818cf8" : "#34d399";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 4]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      var midX = (from.x + to.x) / 2;
+      var midY = (from.y + to.y) / 2;
+      ctx.fillStyle = "#6b7280";
+      ctx.font = "10px sans-serif";
+      ctx.textAlign = "center";
+      var label = conn.identifier_1.length > 15 ? conn.identifier_1.substring(0, 15) + "..." : conn.identifier_1;
+      ctx.fillText(label, midX, midY - 4);
+    });
+    sheetList.forEach(function(sheet) {
+      var pos = positions[sheet];
+      if (!pos) return;
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, 28, 0, Math.PI * 2);
+      ctx.fillStyle = "#6366f1";
+      ctx.fill();
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 10px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      var name = sheet.length > 8 ? sheet.substring(0, 8) + ".." : sheet;
+      ctx.fillText(name, pos.x, pos.y);
+      ctx.fillStyle = "#374151";
+      ctx.font = "11px sans-serif";
+      ctx.textBaseline = "top";
+      ctx.fillText(sheet, pos.x, pos.y + 34);
+    });
+  }
+
+  async function loadReviewItems(wbId) {
+    try {
+      var res = await fetch(`${API_BASE}/workbooks/${wbId}/review-items`);
+      var data = await res.json();
+      hitlTotalItems = data.total_items;
+      hitlDecisions = {};
+
+      if (data.total_items === 0) {
+        showAnalysis();
+        return;
+      }
+
+      document.getElementById("hitl-section").style.display = "block";
+      document.getElementById("hitl-total-count").textContent = data.total_items;
+      document.getElementById("hitl-cards").innerHTML = "";
+
+      for (var i = 0; i < data.items.length; i++) {
+        renderHitlCard(data.items[i], i + 1, data.total_items);
+      }
+    } catch (err) {
+      console.error("Review items error:", err);
+      showAnalysis();
+    }
+  }
+
+  function renderHitlFinding(item) {
+    var f = item.finding || {};
+    if (item.type === "same_metric_across_sheets") {
+      var matchColor = f.values_match ? "text-green-600" : "text-red-600";
+      var matchText = f.values_match ? "✓ Values match across sheets" : "⚠️ Values differ across sheets";
+      var appearances = (f.appearances || []).map(function(a) {
+        return "<span class=\"font-mono bg-gray-100 px-1 rounded text-xs\">" + escapeHtml(a.sheet) + "</span>";
+      }).join(" ");
+      return "<strong>" + escapeHtml(f.metric_name) + "</strong> found in: " + appearances + "<br><span class=\"text-xs " + matchColor + "\">" + matchText + "</span>";
+    }
+    if (item.type === "column_identity") {
+      return "<span class=\"font-mono bg-gray-100 px-1 rounded text-xs\">" + escapeHtml(f.sheet_1) + "</span> → <em>" + escapeHtml(f.column_1) + "</em> &nbsp;vs&nbsp; <span class=\"font-mono bg-gray-100 px-1 rounded text-xs\">" + escapeHtml(f.sheet_2) + "</span> → <em>" + escapeHtml(f.column_2) + "</em><br><span class=\"text-xs text-gray-500\">" + (f.overlap_count || 0) + " overlapping values · " + Math.round((f.ai_confidence || 0) * 100) + "% similarity</span>";
+    }
+    if (item.type === "date_format") {
+      var sv = (f.sample_values || []).slice(0, 5).join(", ");
+      return "<span class=\"font-mono bg-gray-100 px-1 rounded text-xs\">" + escapeHtml(f.sheet) + "</span> column: <em>" + escapeHtml(f.column) + "</em><br><span class=\"text-xs text-gray-500\">Sample: " + escapeHtml(sv) + "</span>";
+    }
+    if (item.type === "unit_scale") {
+      var sv2 = (f.sample_values || []).slice(0, 4).join(", ");
+      return "<span class=\"font-mono bg-gray-100 px-1 rounded text-xs\">" + escapeHtml(f.sheet) + "</span> column: <em>" + escapeHtml(f.column) + "</em><br><span class=\"text-xs text-gray-500\">Sample values: " + escapeHtml(String(sv2)) + "</span>";
+    }
+    if (item.type === "low_confidence_sheet") {
+      return "<span class=\"font-mono bg-gray-100 px-1 rounded text-xs\">" + escapeHtml(f.sheet) + "</span> — AI thinks: <em>" + escapeHtml(f.ai_guess) + "</em><br><span class=\"text-xs text-gray-500\">" + Math.round((f.confidence || 0) * 100) + "% confident</span>";
+    }
+    return "";
+  }
+
+  function renderHitlCard(item, num, total) {
+    var icon = HITL_ICONS[item.type] || "❓";
+    var card = document.createElement("div");
+    card.id = "hitl-card-" + item.review_id;
+    card.className = "border border-gray-200 rounded-lg p-4 transition-all duration-200";
+    var findingJson = JSON.stringify(item.finding || {}).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    var optionsHtml = (item.options || []).map(function(opt) {
+      return "<button class=\"hitl-option-btn px-3 py-1.5 text-xs border border-gray-300 rounded-full hover:border-indigo-400 hover:text-indigo-600 cursor-pointer transition-all\" data-review-id=\"" + escapeHtml(item.review_id) + "\" data-type=\"" + escapeHtml(item.type) + "\" data-decision=\"" + escapeHtml(opt) + "\" data-finding=\"" + findingJson + "\">" + escapeHtml(opt) + "</button>";
+    }).join("");
+    card.innerHTML = "<div class=\"flex items-start gap-3 mb-3\"><span class=\"text-xl\">" + icon + "</span><div class=\"flex-1\"><div class=\"flex items-center justify-between\"><p class=\"font-medium text-gray-800 text-sm\">" + escapeHtml(item.question) + "</p><span class=\"text-xs text-gray-400 ml-2 whitespace-nowrap\">" + num + "/" + total + "</span></div><div class=\"mt-2 text-sm text-gray-600 bg-gray-50 rounded p-2\">" + renderHitlFinding(item) + "</div></div></div><div class=\"flex flex-wrap gap-2 ml-9\">" + optionsHtml + "</div><p class=\"text-xs text-gray-400 ml-9 mt-2\">💡 " + escapeHtml(item.impact || "") + "</p>";
+    card.querySelectorAll(".hitl-option-btn").forEach(function(btn) {
+      btn.addEventListener("click", function() { selectHitlOption(btn); });
+    });
+    document.getElementById("hitl-cards").appendChild(card);
+  }
+
+  function selectHitlOption(button) {
+    var reviewId = button.dataset.reviewId;
+    var type = button.dataset.type;
+    var decision = button.dataset.decision;
+    var finding = button.dataset.finding || "{}";
+    var card = document.getElementById("hitl-card-" + reviewId);
+    card.querySelectorAll(".hitl-option-btn").forEach(function(btn) {
+      btn.classList.remove("bg-indigo-500", "text-white", "border-indigo-500");
+    });
+    button.classList.add("bg-indigo-500", "text-white", "border-indigo-500");
+    card.classList.add("border-indigo-200", "bg-indigo-50");
+    hitlDecisions[reviewId] = { review_id: reviewId, type: type, decision: decision, notes: finding };
+    updateHitlProgress();
+  }
+
+  function updateHitlProgress() {
+    var confirmed = Object.keys(hitlDecisions).length;
+    var total = hitlTotalItems;
+    document.getElementById("hitl-confirmed-count").textContent = confirmed;
+    var pct = total > 0 ? (confirmed / total * 100) : 0;
+    document.getElementById("hitl-progress-bar").style.width = pct + "%";
+    var submitBtn = document.getElementById("hitl-submit-btn");
+    if (confirmed > 0) {
+      submitBtn.disabled = false;
+      submitBtn.classList.remove("bg-gray-300", "cursor-not-allowed");
+      submitBtn.classList.add("bg-indigo-500");
+    }
+  }
+
+  async function submitHitlDecisions() {
+    var wbId = currentWorkbookId;
+    try {
+      var res = await fetch(`${API_BASE}/workbooks/${wbId}/review-decisions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decisions: Object.values(hitlDecisions) })
+      });
+      var result = await res.json();
+      document.getElementById("hitl-section").style.display = "none";
+      showAnalysis();
+      updateStatus("✅ " + (result.connections_created || 0) + " connections confirmed. Analysis ready.", "success");
+    } catch (err) {
+      console.error("Submit decisions error:", err);
+      showAnalysis();
+    }
+  }
+
+  async function skipHitlReview() {
+    try {
+      await fetch(`${API_BASE}/workbooks/${currentWorkbookId}/review-decisions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decisions: [] })
+      });
+    } catch (err) {
+      console.error("Skip error:", err);
+    }
+    document.getElementById("hitl-section").style.display = "none";
+    showAnalysis();
+  }
+
+  document.getElementById("hitl-submit-btn").addEventListener("click", submitHitlDecisions);
+  document.getElementById("hitl-skip-btn").addEventListener("click", skipHitlReview);
+
+  document.getElementById("dropZone").onclick = function () {
+    document.getElementById("fileInput").click();
+  };
+
+  document.getElementById("dropZone").ondragover = function (e) {
+    e.preventDefault();
+    e.currentTarget.classList.add("border-blue-500", "bg-blue-50");
+  };
+
+  document.getElementById("dropZone").ondragleave = function (e) {
+    e.currentTarget.classList.remove("border-blue-500", "bg-blue-50");
+  };
+
+  document.getElementById("dropZone").ondrop = function (e) {
+    e.preventDefault();
+    e.currentTarget.classList.remove("border-blue-500", "bg-blue-50");
+    var f = e.dataTransfer.files[0];
+    if (f) handleFile(f);
+  };
+
+  document.getElementById("fileInput").onchange = function (e) {
+    var f = e.target.files[0];
+    if (f) handleFile(f);
+  };
+
+  async function handleFile(file) {
+    var status = document.getElementById("uploadStatus");
+    var result = document.getElementById("uploadResult");
+    status.className = "mt-4";
+    status.classList.remove("hidden");
+    status.innerHTML = '<span class="inline-block animate-spin rounded-full h-5 w-5 border-2 border-blue-500 border-t-transparent"></span> Analyzing file...';
+    result.classList.add("hidden");
+
+    var fd = new FormData();
+    fd.append("file", file);
+
+    try {
+      var r = await fetch(`${API_BASE}/workbooks/upload`, { method: "POST", body: fd });
+      if (!r.ok) {
+        var errData = await r.json();
+        throw new Error(errData.detail || r.statusText);
+      }
+      var data = await r.json();
+      workbookId = data.workbook_id;
+      currentWorkbookId = workbookId;
+      currentConversationId = null;
+
+      var mapRes = await fetch(`${API_BASE}/workbooks/${workbookId}/map-schemas`, { method: "POST" });
+      var qualityRes = await fetch(`${API_BASE}/workbooks/${workbookId}/quality-report`);
+      var schemas = await mapRes.json();
+      var quality = await qualityRes.json();
+
+      renderSheets(schemas);
+      renderQuality(quality);
+
+      status.classList.add("hidden");
+      result.classList.remove("hidden");
+      var sheetCount = (data.parsed && data.parsed.sheets) ? data.parsed.sheets.length : 0;
+      result.innerHTML = "<strong>" + escapeHtml(data.parsed.file_name || "File") + "</strong> — " + sheetCount + " sheets detected";
+
+      await loadReviewItems(workbookId);
+    } catch (err) {
+      status.innerHTML = '<span class="text-red-600">' + escapeHtml(err.message) + "</span>";
+    }
+  }
+
+  function escapeHtml(str) {
+    if (!str) return "";
+    var div = document.createElement("div");
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  function renderSheets(schemas) {
+    var el = document.getElementById("sheetsList");
+    if (!schemas || schemas.length === 0) {
+      el.innerHTML = '<p class="text-gray-500">No sheets mapped yet.</p>';
+      return;
+    }
+
+    var html = "";
+    for (var i = 0; i < schemas.length; i++) {
+      var s = schemas[i];
+      var color = ENTITY_COLORS[i % ENTITY_COLORS.length];
+      var confidence = Math.round((s.confidence || 0) * 100);
+      var entity = s.entity || "unknown";
+
+      var metricsHtml = "";
+      var metrics = s.key_metrics || [];
+      for (var j = 0; j < Math.min(5, metrics.length); j++) {
+        metricsHtml += '<span class="inline-block px-2 py-0.5 text-xs bg-gray-100 text-gray-600 rounded mr-1 mt-1">' + escapeHtml(metrics[j]) + "</span>";
+      }
+
+      html += '<div class="border rounded-lg p-3">';
+      html += '<div class="font-medium">' + escapeHtml(s.sheet_name) + "</div>";
+      html += '<span class="inline-block px-2 py-0.5 text-xs rounded bg-' + color + '-100 text-' + color + '-800">' + escapeHtml(entity) + "</span>";
+      html += ' <span class="text-xs text-gray-500 ml-2">' + confidence + "% confidence</span>";
+      html += '<div class="mt-2">' + metricsHtml + "</div>";
+      html += "</div>";
+    }
+    el.innerHTML = html;
+  }
+
+  function renderQuality(q) {
+    var el = document.getElementById("qualityPanel");
+    var score = (q && q.overall_score != null) ? q.overall_score : 0;
+    var scoreColor = "text-red-600";
+    if (score >= 0.7) scoreColor = "text-green-600";
+    else if (score >= 0.4) scoreColor = "text-yellow-600";
+
+    var html = '<div class="mb-4">';
+    html += '<div class="text-4xl font-bold ' + scoreColor + '">' + score.toFixed(2) + "</div>";
+    html += '<div class="text-sm text-gray-600">Quality Score</div>';
+    html += '<p class="text-xs text-gray-500 mt-1">Measures structural completeness and consistency</p>';
+    html += "</div>";
+
+    var issues = (q && q.issues) ? q.issues : [];
+    var bySeverity = { high: [], medium: [], low: [] };
+    for (var i = 0; i < issues.length; i++) {
+      var it = issues[i];
+      var sev = it.severity || "low";
+      if (bySeverity[sev]) bySeverity[sev].push(it);
+    }
+
+    var severities = ["high", "medium", "low"];
+    for (var si = 0; si < severities.length; si++) {
+      var sev = severities[si];
+      if (bySeverity[sev].length === 0) continue;
+
+      var dotClass = "bg-gray-500";
+      if (sev === "high") dotClass = "bg-red-500";
+      else if (sev === "medium") dotClass = "bg-yellow-500";
+
+      var label = sev.charAt(0).toUpperCase() + sev.slice(1);
+      html += '<div class="mt-4">';
+      html += '<div class="text-sm font-medium text-gray-700 mb-2">' + label + "</div>";
+      html += '<ul class="space-y-1">';
+
+      for (var k = 0; k < bySeverity[sev].length; k++) {
+        var issue = bySeverity[sev][k];
+        var sheetName = issue.sheet || "?";
+        var rule = issue.rule || "";
+        var msg = issue.message || "";
+        html += '<li class="flex items-start gap-2 text-sm">';
+        html += '<span class="w-2 h-2 rounded-full ' + dotClass + ' mt-1.5 shrink-0"></span>';
+        html += "<span>[" + escapeHtml(sheetName) + "] " + escapeHtml(rule) + ": " + escapeHtml(msg) + "</span>";
+        html += "</li>";
+      }
+      html += "</ul></div>";
+    }
+
+    el.innerHTML = html;
+  }
+
+  document.getElementById("sendBtn").onclick = sendMessage;
+
+  document.getElementById("chatInput").onkeydown = function (e) {
+    if (e.key === "Enter") sendMessage();
+  };
+
+  async function sendMessage() {
+    var input = document.getElementById("chatInput");
+    var q = input.value.trim();
+    if (!q || !currentWorkbookId) return;
+
+    input.value = "";
+    var history = document.getElementById("chatHistory");
+
+    history.innerHTML += '<div class="flex justify-end"><div class="max-w-[80%] bg-blue-500 text-white px-4 py-2 rounded-lg rounded-br-none">' + escapeHtml(q) + "</div></div>";
+    history.scrollTop = history.scrollHeight;
+
+    document.getElementById("typingIndicator").classList.remove("hidden");
+
+    try {
+      var requestBody = {
+        workbook_id: currentWorkbookId,
+        question: q,
+        conversation_id: currentConversationId
+      };
+      var r = await fetch(`${API_BASE}/chat/query`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody)
+      });
+
+      if (!r.ok) {
+        var errData = await r.json();
+        throw new Error(errData.detail || r.statusText);
+      }
+
+      var data = await r.json();
+      document.getElementById("typingIndicator").classList.add("hidden");
+
+      if (data.conversation_id) {
+        currentConversationId = data.conversation_id;
+      }
+
+      var answer = (data.answer || "").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>");
+
+      var sheetsTags = "";
+      var sheetsUsed = data.sheets_used || [];
+      for (var i = 0; i < sheetsUsed.length; i++) {
+        sheetsTags += '<span class="inline-block px-2 py-0.5 text-xs bg-gray-200 rounded mr-1">' + escapeHtml(sheetsUsed[i]) + "</span>";
+      }
+
+      history.innerHTML += '<div class="flex justify-start"><div class="max-w-[80%]">';
+      history.innerHTML += '<div class="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg rounded-bl-none">' + answer + "</div>";
+      history.innerHTML += '<div class="mt-1 flex flex-wrap gap-1">' + sheetsTags + "</div>";
+      history.innerHTML += "</div></div>";
+
+      history.scrollTop = history.scrollHeight;
+    } catch (err) {
+      document.getElementById("typingIndicator").classList.add("hidden");
+      history.innerHTML += '<div class="flex justify-start"><div class="bg-red-100 text-red-700 px-4 py-2 rounded-lg">' + escapeHtml(err.message) + "</div></div>";
+      history.scrollTop = history.scrollHeight;
+    }
+  }
+})();
+  </script>
+</body>
+</html>

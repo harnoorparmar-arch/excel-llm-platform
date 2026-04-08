@@ -1,0 +1,1447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" 
+        content="width=device-width, 
+                 initial-scale=1.0">
+  <title>Workspace - Spreadsheet Intelligence</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    /* ER Diagram styles */
+    .node-rect {
+      rx: 8;
+      ry: 8;
+      stroke-width: 2;
+      cursor: pointer;
+    }
+    .node-title {
+      font-weight: bold;
+      font-size: 13px;
+      fill: white;
+    }
+    .node-column {
+      font-size: 11px;
+      fill: #374151;
+    }
+    .node-pk {
+      font-size: 11px;
+      fill: #f59e0b;
+      font-weight: bold;
+    }
+    .link-line {
+      stroke-width: 2;
+      fill: none;
+      cursor: pointer;
+    }
+    .link-line.confirmed {
+      stroke: #10b981;
+      stroke-width: 2.5;
+    }
+    .link-line.unconfirmed {
+      stroke: #6366f1;
+      stroke-dasharray: 6,3;
+    }
+    .link-line.rejected {
+      stroke: #ef4444;
+      stroke-dasharray: 4,4;
+      opacity: 0.4;
+    }
+    .link-label {
+      font-size: 10px;
+      fill: #6b7280;
+      pointer-events: none;
+    }
+    .confidence-badge {
+      font-size: 10px;
+      font-weight: bold;
+    }
+    #er-diagram {
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      background: #fafafa;
+      overflow: hidden;
+    }
+    .tooltip {
+      position: absolute;
+      background: white;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 12px;
+      pointer-events: none;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+      max-width: 280px;
+      z-index: 100;
+    }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+  <!-- Tooltip -->
+  <div id="tooltip" class="tooltip" 
+       style="display:none"></div>
+
+  <!-- Header -->
+  <div class="bg-white border-b border-gray-200 
+              px-6 py-4 mb-6">
+    <div class="max-w-7xl mx-auto flex items-center 
+                justify-between">
+      <div>
+        <h1 class="text-xl font-bold text-gray-800">
+          Spreadsheet Intelligence
+        </h1>
+        <p class="text-sm text-gray-500">
+          Workspace — Multi-file Analysis
+        </p>
+      </div>
+      <a href="index.html" 
+         class="text-sm text-indigo-600 
+                hover:text-indigo-800">
+        ← Single File Analysis
+      </a>
+    </div>
+  </div>
+
+  <div class="max-w-7xl mx-auto px-6">
+
+    <!-- Workspace Setup -->
+    <div id="workspace-setup" 
+         class="bg-white border border-gray-200 
+                rounded-lg shadow-sm p-6 mb-6">
+      
+      <h2 class="text-base font-semibold 
+                 text-gray-800 mb-4">
+        📁 Workspace
+      </h2>
+      
+      <div id="no-workspace">
+        <p class="text-sm text-gray-500 mb-4">
+          Create a workspace to analyze 
+          multiple related files together
+        </p>
+        <div class="flex gap-3">
+          <input 
+            id="workspace-name-input"
+            type="text"
+            placeholder="Workspace name (e.g. Sales Q1 2024)"
+            class="flex-1 border border-gray-300 
+                   rounded-lg px-3 py-2 text-sm
+                   focus:outline-none 
+                   focus:border-indigo-400">
+          <button 
+            id="create-workspace-btn"
+            class="px-4 py-2 bg-indigo-500 
+                   text-white text-sm rounded-lg
+                   hover:bg-indigo-600">
+            Create Workspace
+          </button>
+        </div>
+      </div>
+      
+      <div id="workspace-info" 
+           style="display:none">
+        <div class="flex items-center gap-3">
+          <div class="w-3 h-3 bg-green-400 
+                      rounded-full"></div>
+          <div>
+            <p class="font-medium text-gray-800 
+                      text-sm" id="workspace-name">
+            </p>
+            <p class="text-xs text-gray-500" 
+               id="workspace-id-display">
+            </p>
+          </div>
+          <span class="ml-auto text-xs 
+                       text-gray-500"
+                id="workspace-file-count">
+            0 files
+          </span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- File Upload -->
+    <div id="upload-section"
+         style="display:none"
+         class="bg-white border border-gray-200 
+                rounded-lg shadow-sm p-6 mb-6">
+      
+      <h2 class="text-base font-semibold 
+                 text-gray-800 mb-4">
+        📤 Upload Files
+      </h2>
+      
+      <div 
+        id="drop-zone"
+        class="border-2 border-dashed 
+               border-gray-300 rounded-lg 
+               p-8 text-center mb-4
+               hover:border-indigo-400 
+               transition-colors cursor-pointer">
+        <p class="text-gray-500 text-sm">
+          Drop files here or click to select
+        </p>
+        <p class="text-gray-400 text-xs mt-1">
+          .xlsx .xls .csv supported
+        </p>
+        <input 
+          type="file" 
+          id="file-input"
+          multiple
+          accept=".xlsx,.xls,.csv,.tsv"
+          class="hidden">
+      </div>
+      
+      <div id="upload-list" 
+           class="space-y-2 mb-4">
+      </div>
+      
+      <button
+        id="detect-btn"
+        style="display:none"
+        class="w-full py-2 bg-indigo-500 
+               text-white text-sm rounded-lg
+               hover:bg-indigo-600">
+        🔍 Detect Relationships Across Files
+      </button>
+
+    </div>
+
+    <!-- ER Diagram -->
+    <div id="er-section"
+         style="display:none"
+         class="bg-white border border-gray-200 
+                rounded-lg shadow-sm p-6 mb-6">
+      
+      <div class="flex items-center 
+                  justify-between mb-4">
+        <div>
+          <h2 class="text-base font-semibold 
+                     text-gray-800">
+            🔗 Entity Relationship Diagram
+          </h2>
+          <p class="text-sm text-gray-500 mt-1">
+            Click a connection to confirm ✅ 
+            or reject ❌
+          </p>
+        </div>
+        <div class="flex gap-4 text-xs 
+                    text-gray-500">
+          <span>
+            <span class="inline-block w-6 h-0.5 
+                         bg-indigo-400 
+                         border-dashed mr-1 
+                         align-middle">
+            </span>
+            Unconfirmed
+          </span>
+          <span>
+            <span class="inline-block w-6 h-0.5 
+                         bg-green-400 mr-1 
+                         align-middle">
+            </span>
+            Confirmed
+          </span>
+          <span>
+            <span class="inline-block w-6 h-0.5 
+                         bg-red-400 mr-1 
+                         align-middle">
+            </span>
+            Rejected
+          </span>
+        </div>
+      </div>
+      
+      <div class="flex items-center gap-3 mb-3">
+        <span class="text-xs text-gray-500">
+          Show relationships:
+        </span>
+        <button
+          id="filter-strong"
+          onclick="setConfidenceFilter(0.8)"
+          class="px-3 py-1 text-xs rounded-full
+                 bg-indigo-500 text-white">
+          Strong only (80%+)
+        </button>
+        <button
+          id="filter-medium"
+          onclick="setConfidenceFilter(0.5)"
+          class="px-3 py-1 text-xs rounded-full
+                 bg-gray-100 text-gray-600
+                 hover:bg-gray-200">
+          Medium+ (50%+)
+        </button>
+        <button
+          id="filter-all"
+          onclick="setConfidenceFilter(0)"
+          class="px-3 py-1 text-xs rounded-full
+                 bg-gray-100 text-gray-600
+                 hover:bg-gray-200">
+          All
+        </button>
+        <span class="text-xs text-gray-400 ml-2"
+              id="rel-count-label">
+        </span>
+      </div>
+      
+      <svg id="er-diagram" 
+           width="100%" 
+           height="500">
+      </svg>
+      
+      <!-- Relationship list below diagram -->
+      <div class="mt-6">
+        <h3 class="text-sm font-semibold 
+                   text-gray-700 mb-3">
+          All Detected Relationships
+        </h3>
+        <div id="relationship-list" 
+             class="space-y-2">
+        </div>
+      </div>
+      
+      <!-- Primary keys -->
+      <div class="mt-6">
+        <h3 class="text-sm font-semibold 
+                   text-gray-700 mb-3">
+          Primary Keys Detected
+        </h3>
+        <div id="primary-key-list" 
+             class="space-y-2">
+        </div>
+      </div>
+      
+      <button
+        id="save-relationships-btn"
+        class="mt-6 w-full py-2 bg-green-500 
+               text-white text-sm rounded-lg
+               hover:bg-green-600">
+        ✅ Save Confirmed Relationships 
+           and Continue to Analysis
+      </button>
+
+    </div>
+
+    <!-- Workspace Chat -->
+    <div id="workspace-chat-section"
+         style="display:none"
+         class="bg-white border border-gray-200 
+                rounded-lg shadow-sm p-6 mb-6">
+      
+      <h2 class="text-base font-semibold 
+                 text-gray-800 mb-1">
+        💬 Ask Questions Across All Files
+      </h2>
+      <p class="text-sm text-gray-500 mb-4">
+        Ask anything about your unified dataset
+      </p>
+      
+      <div id="workspace-chat-messages" 
+           class="space-y-3 mb-4 min-h-24 
+                  max-h-96 overflow-y-auto">
+      </div>
+      
+      <div class="flex gap-2">
+        <input
+          id="workspace-chat-input"
+          type="text"
+          placeholder="Ask anything about your data..."
+          class="flex-1 border border-gray-300 
+                 rounded-lg px-3 py-2 text-sm
+                 focus:outline-none 
+                 focus:border-indigo-400">
+        <button
+          id="workspace-chat-send"
+          class="px-4 py-2 bg-indigo-500 
+                 text-white text-sm rounded-lg
+                 hover:bg-indigo-600">
+          Send
+        </button>
+      </div>
+
+    </div>
+
+  </div>
+
+  <script>
+  const API_BASE = 'http://localhost:8000'
+  let currentWorkspaceId = null
+  let detectedRelationships = []
+  let detectedPrimaryKeys = []
+  let relationshipStates = {}
+
+  // ─────────────────────────────────────
+  // WORKSPACE CREATION
+  // ─────────────────────────────────────
+  document.getElementById('create-workspace-btn')
+    .addEventListener('click', createWorkspace)
+
+  async function createWorkspace() {
+    const name = document.getElementById(
+      'workspace-name-input'
+    ).value.trim() || 'New Workspace'
+    
+    try {
+      const res = await fetch(
+        `${API_BASE}/workspaces/create`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ name })
+        }
+      )
+      const data = await res.json()
+      currentWorkspaceId = data.workspace_id
+      
+      // Update UI
+      document.getElementById('no-workspace')
+        .style.display = 'none'
+      document.getElementById('workspace-info')
+        .style.display = 'block'
+      document.getElementById('workspace-name')
+        .textContent = data.name
+      document.getElementById('workspace-id-display')
+        .textContent = `ID: ${data.workspace_id}`
+      document.getElementById('upload-section')
+        .style.display = 'block'
+        
+    } catch (err) {
+      alert('Failed to create workspace: ' + err)
+    }
+  }
+
+  // ─────────────────────────────────────
+  // FILE UPLOAD
+  // ─────────────────────────────────────
+  const dropZone = document.getElementById('drop-zone')
+  const fileInput = document.getElementById('file-input')
+  
+  dropZone.addEventListener('click', () => {
+    fileInput.click()
+  })
+  
+  dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault()
+    dropZone.classList.add('border-indigo-400')
+  })
+  
+  dropZone.addEventListener('dragleave', () => {
+    dropZone.classList.remove('border-indigo-400')
+  })
+  
+  dropZone.addEventListener('drop', (e) => {
+    e.preventDefault()
+    dropZone.classList.remove('border-indigo-400')
+    const files = Array.from(e.dataTransfer.files)
+    uploadFiles(files)
+  })
+  
+  fileInput.addEventListener('change', () => {
+    const files = Array.from(fileInput.files)
+    uploadFiles(files)
+  })
+
+  let uploadedCount = 0
+
+  async function uploadFiles(files) {
+    for (const file of files) {
+      await uploadSingleFile(file)
+    }
+    
+    if (uploadedCount >= 2) {
+      document.getElementById('detect-btn')
+        .style.display = 'block'
+    }
+  }
+
+  async function uploadSingleFile(file) {
+    const itemId = `upload-${Date.now()}`
+    
+    // Add to upload list
+    const item = document.createElement('div')
+    item.id = itemId
+    item.className = [
+      'flex items-center gap-3 p-3',
+      'border border-gray-200 rounded-lg',
+      'text-sm'
+    ].join(' ')
+    item.innerHTML = `
+      <span class="text-gray-400">⏳</span>
+      <span class="flex-1 text-gray-700">
+        ${file.name}
+      </span>
+      <span class="text-gray-400 text-xs">
+        Processing...
+      </span>
+    `
+    document.getElementById('upload-list')
+      .appendChild(item)
+    
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      
+      const res = await fetch(
+        `${API_BASE}/workspaces/${currentWorkspaceId}/upload`,
+        { method: 'POST', body: formData }
+      )
+      const data = await res.json()
+      
+      // Update item to success
+      item.innerHTML = `
+        <span class="text-green-500">✅</span>
+        <span class="flex-1 text-gray-700">
+          ${file.name}
+        </span>
+        <span class="text-gray-500 text-xs">
+          ${data.sheet_count} sheet(s) · processed
+        </span>
+      `
+      
+      uploadedCount++
+      document.getElementById('workspace-file-count')
+        .textContent = `${uploadedCount} files`
+      
+    } catch (err) {
+      item.innerHTML = `
+        <span class="text-red-500">❌</span>
+        <span class="flex-1 text-gray-700">
+          ${file.name}
+        </span>
+        <span class="text-red-400 text-xs">
+          Failed
+        </span>
+      `
+    }
+  }
+
+  // ─────────────────────────────────────
+  // DETECT RELATIONSHIPS
+  // ─────────────────────────────────────
+  document.getElementById('detect-btn')
+    .addEventListener('click', detectRelationships)
+
+  async function detectRelationships() {
+    const btn = document.getElementById('detect-btn')
+    btn.textContent = '⏳ Detecting relationships...'
+    btn.disabled = true
+    
+    try {
+      const res = await fetch(
+        `${API_BASE}/workspaces/${currentWorkspaceId}/detect-relationships`,
+        { method: 'POST' }
+      )
+      const data = await res.json()
+      
+      detectedRelationships = data.relationships || []
+      detectedPrimaryKeys = data.primary_keys || []
+      
+      // Initialize all as unconfirmed
+      detectedRelationships.forEach(rel => {
+        relationshipStates[rel.relationship_id] = 
+          'unconfirmed'
+      })
+      
+      // Show ER section
+      document.getElementById('er-section')
+        .style.display = 'block'
+      
+      // Render diagram and lists
+      renderERDiagram()
+      renderRelationshipList()
+      renderPrimaryKeyList()
+      
+      btn.textContent = '🔄 Re-detect Relationships'
+      btn.disabled = false
+      
+    } catch (err) {
+      alert('Detection failed: ' + err)
+      btn.textContent = '🔍 Detect Relationships'
+      btn.disabled = false
+    }
+  }
+
+  // ─────────────────────────────────────
+  // D3.JS ER DIAGRAM
+  // ─────────────────────────────────────
+  let confidenceFilter = 0.8
+  
+  function setConfidenceFilter(threshold) {
+    confidenceFilter = threshold
+    
+    // Update button styles
+    document.getElementById('filter-strong')
+      .className = threshold === 0.8
+        ? 'px-3 py-1 text-xs rounded-full bg-indigo-500 text-white'
+        : 'px-3 py-1 text-xs rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200'
+    document.getElementById('filter-medium')
+      .className = threshold === 0.5
+        ? 'px-3 py-1 text-xs rounded-full bg-indigo-500 text-white'
+        : 'px-3 py-1 text-xs rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200'
+    document.getElementById('filter-all')
+      .className = threshold === 0
+        ? 'px-3 py-1 text-xs rounded-full bg-indigo-500 text-white'
+        : 'px-3 py-1 text-xs rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200'
+    
+    renderERDiagram()
+    renderRelationshipList()
+  }
+
+  function renderERDiagram() {
+    const svg = d3.select('#er-diagram')
+    svg.selectAll('*').remove()
+
+    // Apply confidence filter
+    const filteredRelationships =
+      detectedRelationships.filter(
+        r => (r.confidence || 0) >= confidenceFilter
+      )
+    
+    // Update count label
+    const countLabel = document.getElementById(
+      'rel-count-label')
+    if (countLabel) {
+      countLabel.textContent =
+        `${filteredRelationships.length} of ${detectedRelationships.length} relationships`
+    }
+
+    const width = document.getElementById('er-diagram').clientWidth || 900
+    const height = 500
+    svg.attr('viewBox', `0 0 ${width} ${height}`)
+
+    const files = new Set()
+    filteredRelationships.forEach(r => { files.add(r.file_1); files.add(r.file_2) })
+    const nodeList = Array.from(files)
+    const nodeWidth = 160
+    const nodeHeight = 100
+
+    const connectionCount = {}
+    nodeList.forEach(f => { connectionCount[f] = 0 })
+    filteredRelationships.forEach(r => {
+      connectionCount[r.file_1] = (connectionCount[r.file_1] || 0) + 1
+      connectionCount[r.file_2] = (connectionCount[r.file_2] || 0) + 1
+    })
+    const sortedByConnections = [...nodeList].sort(
+      (a, b) => (connectionCount[b] || 0) - (connectionCount[a] || 0)
+    )
+
+    const cols = Math.ceil(Math.sqrt(nodeList.length))
+    const rows = Math.ceil(nodeList.length / cols)
+    const colSpacing = width / (cols + 1)
+    const rowSpacing = height / (rows + 1)
+
+    const nodes = sortedByConnections.map((file, i) => {
+      const col = i % cols
+      const row = Math.floor(i / cols)
+      return {
+        id: file,
+        x: colSpacing * (col + 1),
+        y: rowSpacing * (row + 1),
+        width: nodeWidth,
+        height: nodeHeight
+      }
+    })
+
+    const nodeMap = {}
+    nodes.forEach(n => { nodeMap[n.id] = n })
+
+    const g = svg.append('g')
+    svg.call(
+      d3.zoom().scaleExtent([0.5, 2]).on('zoom', (event) => {
+        g.attr('transform', event.transform)
+      })
+    )
+
+    // --- IMPROVED EDGE RENDERING ---
+    // Group edges by node-pair so parallel edges get separate offsets
+    const pairIndex = {}
+    const pairCount = {}
+    filteredRelationships.forEach(d => {
+      const key = [d.file_1, d.file_2].sort().join('||')
+      pairCount[key] = (pairCount[key] || 0) + 1
+    })
+    filteredRelationships.forEach(d => {
+      const key = [d.file_1, d.file_2].sort().join('||')
+      if (pairIndex[key] === undefined) pairIndex[key] = 0
+      d._pairKey = key
+      d._pairIdx = pairIndex[key]
+      d._pairTotal = pairCount[key]
+      pairIndex[key]++
+    })
+
+    // Draw curved paths instead of straight lines to avoid label overlap
+    const links = g.append('g').selectAll('g')
+      .data(filteredRelationships)
+      .enter().append('g')
+
+    links.append('path')
+      .attr('class', d => {
+        const state = relationshipStates[d.relationship_id] || 'unconfirmed'
+        return `link-line ${state}`
+      })
+      .attr('d', d => getEdgePath(d, nodeMap))
+      .attr('stroke', d => {
+        const state = relationshipStates[d.relationship_id] || 'unconfirmed'
+        if (state === 'confirmed') return '#10b981'
+        if (state === 'rejected') return '#ef4444'
+        return '#6366f1'
+      })
+      .attr('stroke-dasharray', d => {
+        const state = relationshipStates[d.relationship_id] || 'unconfirmed'
+        if (state === 'unconfirmed') return '6,3'
+        if (state === 'rejected') return '4,4'
+        return 'none'
+      })
+      .attr('stroke-width', 2)
+      .attr('fill', 'none')
+      .attr('opacity', d => {
+        const state = relationshipStates[d.relationship_id] || 'unconfirmed'
+        return state === 'rejected' ? 0.3 : 1
+      })
+      .style('cursor', 'pointer')
+      .on('mouseover', showLinkTooltip)
+      .on('mouseout', hideTooltip)
+      .on('click', handleLinkClick)
+
+    // Labels: placed at the curve midpoint with per-pair vertical stacking
+    const LABEL_LINE_HEIGHT = 16
+    const linkLabels = links.append('g')
+      .attr('class', 'link-label-group')
+      .style('pointer-events', 'none')
+
+    linkLabels.each(function(d) {
+      const el = d3.select(this)
+      const n1 = nodeMap[d.file_1]
+      const n2 = nodeMap[d.file_2]
+      if (!n1 || !n2) return
+
+      const { lx, ly } = getLabelPosition(d, n1, n2)
+      // Stack labels vertically when multiple edges share same pair
+      const stackOffset = (d._pairIdx - (d._pairTotal - 1) / 2) * LABEL_LINE_HEIGHT
+      const finalLY = ly + stackOffset
+
+      const labelText = `${d.column_1} ↔ ${d.column_2}`
+      const textWidth = Math.min(labelText.length * 6.2, 140)
+
+      el.append('rect')
+        .attr('x', lx - textWidth / 2 - 4)
+        .attr('y', finalLY - 9)
+        .attr('width', textWidth + 8)
+        .attr('height', 16)
+        .attr('fill', 'white')
+        .attr('rx', 3)
+        .attr('stroke', '#e5e7eb')
+        .attr('stroke-width', 0.5)
+        .attr('opacity', 0.95)
+
+      el.append('text')
+        .attr('x', lx)
+        .attr('y', finalLY)
+        .attr('text-anchor', 'middle')
+        .attr('dominant-baseline', 'middle')
+        .attr('font-size', '10px')
+        .attr('fill', '#374151')
+        .text(labelText)
+
+      el.append('title')
+        .text(`${d.column_1} ↔ ${d.column_2}\nConfidence: ${Math.round(d.confidence * 100)}%\nShared values: ${d.overlap_count}`)
+    })
+
+    // Draw nodes (unchanged)
+    const nodeGroups = g.append('g')
+      .selectAll('g')
+      .data(nodes)
+      .enter().append('g')
+      .attr('transform', d => `translate(${d.x - nodeWidth/2}, ${d.y - nodeHeight/2})`)
+      .call(
+        d3.drag().on('drag', function(event, d) {
+          d.x = event.x + nodeWidth/2
+          d.y = event.y + nodeHeight/2
+          d3.select(this).attr('transform', `translate(${event.x}, ${event.y})`)
+          updateEdges(g, nodeMap, filteredRelationships)
+        })
+      )
+
+    nodeGroups.append('rect')
+      .attr('class', 'node-rect')
+      .attr('width', nodeWidth).attr('height', nodeHeight)
+      .attr('fill', '#6366f1').attr('stroke', '#4f46e5')
+
+    nodeGroups.append('rect')
+      .attr('width', nodeWidth).attr('height', 30)
+      .attr('fill', '#4f46e5').attr('rx', 8).attr('ry', 8)
+
+    nodeGroups.append('text')
+      .attr('class', 'node-title')
+      .attr('x', nodeWidth / 2).attr('y', 20)
+      .attr('text-anchor', 'middle')
+      .text(d => d.id.replace('.csv','').replace('.xlsx','').replace('.xls','').toUpperCase())
+
+    nodeGroups.append('text')
+      .attr('class', 'node-pk')
+      .attr('x', 8).attr('y', 48)
+      .text(d => {
+        const pk = detectedPrimaryKeys.find(p => p.file === d.id)
+        return pk ? `🔑 ${pk.column}` : ''
+      })
+
+    nodeGroups.append('text')
+      .attr('class', 'node-column')
+      .attr('x', 8).attr('y', 68).attr('fill', '#e0e7ff')
+      .text(d => {
+        const rels = filteredRelationships.filter(r => r.file_1 === d.id || r.file_2 === d.id)
+        return `${rels.length} connection(s)`
+      })
+
+    nodeGroups.append('text')
+      .attr('class', 'node-column')
+      .attr('x', 8).attr('y', 85).attr('fill', '#e0e7ff')
+      .text(d => d.id)
+  }
+
+  // Returns a quadratic bezier SVG path string with curvature based on pair index
+  function getEdgePath(d, nodeMap) {
+    const n1 = nodeMap[d.file_1]
+    const n2 = nodeMap[d.file_2]
+    if (!n1 || !n2) return ''
+    const x1 = n1.x, y1 = n1.y
+    const x2 = n2.x, y2 = n2.y
+    const dx = x2 - x1, dy = y2 - y1
+    const len = Math.sqrt(dx*dx + dy*dy) || 1
+    // Spread parallel edges much further apart
+    // Each edge in a pair gets a different offset
+    // ranging from -120 to +120 based on index
+    const totalEdges = d._pairTotal || 1
+    const idx = d._pairIdx || 0
+    const spread = 80
+    const offset = (idx - (totalEdges - 1) / 2) * spread
+    const cx = (x1 + x2) / 2 + (-dy / len) * offset
+    const cy = (y1 + y2) / 2 + (dx / len) * offset
+    return `M${x1},${y1} Q${cx},${cy} ${x2},${y2}`
+  }
+
+  // Returns the label position at the midpoint of the bezier curve
+  function getLabelPosition(d, n1, n2) {
+    const x1 = n1.x, y1 = n1.y
+    const x2 = n2.x, y2 = n2.y
+    const dx = x2 - x1, dy = y2 - y1
+    const len = Math.sqrt(dx*dx + dy*dy) || 1
+    const totalEdges = d._pairTotal || 1
+    const idx = d._pairIdx || 0
+    const spread = 80
+    const offset = (idx - (totalEdges - 1) / 2) * spread
+    const cx = (x1 + x2) / 2 + (-dy / len) * offset
+    const cy = (y1 + y2) / 2 + (dx / len) * offset
+    const lx = 0.25*x1 + 0.5*cx + 0.25*x2
+    const ly = 0.25*y1 + 0.5*cy + 0.25*y2
+    return { lx, ly }
+  }
+
+  function updateEdges(g, nodeMap, relationships) {
+    // Re-assign pair indices after drag
+    const pairIndex = {}
+    const pairCount = {}
+    relationships.forEach(d => {
+      const key = [d.file_1, d.file_2].sort().join('||')
+      pairCount[key] = (pairCount[key] || 0) + 1
+    })
+    relationships.forEach(d => {
+      const key = [d.file_1, d.file_2].sort().join('||')
+      if (pairIndex[key] === undefined) pairIndex[key] = 0
+      d._pairIdx = pairIndex[key]
+      d._pairTotal = pairCount[key]
+      pairIndex[key]++
+    })
+
+    g.selectAll('.link-line')
+      .attr('d', d => getEdgePath(d, nodeMap))
+
+    g.selectAll('.link-label-group').each(function(d) {
+      const el = d3.select(this)
+      const n1 = nodeMap[d.file_1]
+      const n2 = nodeMap[d.file_2]
+      if (!n1 || !n2) return
+      const { lx, ly } = getLabelPosition(d, n1, n2)
+      const LABEL_LINE_HEIGHT = 16
+      const stackOffset = (d._pairIdx - (d._pairTotal - 1) / 2) * LABEL_LINE_HEIGHT
+      const finalLY = ly + stackOffset
+      const labelText = `${d.column_1} ↔ ${d.column_2}`
+      const textWidth = Math.min(labelText.length * 6.2, 140)
+
+      el.select('rect')
+        .attr('x', lx - textWidth / 2 - 4)
+        .attr('y', finalLY - 9)
+      el.select('text')
+        .attr('x', lx)
+        .attr('y', finalLY)
+    })
+  }
+
+  function showLinkTooltip(event, d) {
+    const tooltip = document.getElementById('tooltip')
+    const state = relationshipStates[
+      d.relationship_id
+    ] || 'unconfirmed'
+    
+    tooltip.innerHTML = `
+      <div class="font-semibold text-gray-800 mb-2">
+        ${d.file_1} ↔ ${d.file_2}
+      </div>
+      <div class="text-gray-600 mb-1">
+        <strong>${d.column_1}</strong> 
+        ↔ 
+        <strong>${d.column_2}</strong>
+      </div>
+      <div class="text-gray-500 mb-2">
+        Confidence: 
+        ${Math.round(d.confidence * 100)}%
+        · Overlap: ${d.overlap_count} values
+      </div>
+      <div class="text-gray-500 mb-2">
+        Sample: 
+        ${(d.sample_overlapping_values || []).slice(0,3).join(', ')}
+      </div>
+      <div class="flex gap-2 mt-2">
+        <span class="px-2 py-1 rounded text-xs
+          ${state === 'confirmed' 
+            ? 'bg-green-100 text-green-700' 
+            : state === 'rejected'
+            ? 'bg-red-100 text-red-700'
+            : 'bg-indigo-100 text-indigo-700'}">
+          ${state}
+        </span>
+      </div>
+      <div class="text-xs text-gray-400 mt-2">
+        Click to confirm/reject
+      </div>
+    `
+    tooltip.style.display = 'block'
+    tooltip.style.left = (event.pageX + 12) + 'px'
+    tooltip.style.top = (event.pageY - 12) + 'px'
+  }
+
+  function hideTooltip() {
+    document.getElementById('tooltip')
+      .style.display = 'none'
+  }
+
+  function handleLinkClick(event, d) {
+    hideTooltip()
+    const current = relationshipStates[
+      d.relationship_id
+    ] || 'unconfirmed'
+    
+    // Cycle through states
+    if (current === 'unconfirmed') {
+      relationshipStates[d.relationship_id] = 
+        'confirmed'
+    } else if (current === 'confirmed') {
+      relationshipStates[d.relationship_id] = 
+        'rejected'
+    } else {
+      relationshipStates[d.relationship_id] = 
+        'unconfirmed'
+    }
+    
+    // Re-render diagram and list
+    renderERDiagram()
+    renderRelationshipList()
+  }
+
+  // ─────────────────────────────────────
+  // RELATIONSHIP LIST
+  // ─────────────────────────────────────
+  function renderRelationshipList() {
+    const filteredRelationships =
+      detectedRelationships.filter(
+        r => (r.confidence || 0) >= confidenceFilter
+      )
+    
+    const container = document.getElementById(
+      'relationship-list'
+    )
+    container.innerHTML = ''
+    
+    filteredRelationships.forEach(rel => {
+      const state = relationshipStates[
+        rel.relationship_id
+      ] || 'unconfirmed'
+      
+      const conf = Math.round(rel.confidence * 100)
+      
+      const stateColors = {
+        confirmed: 'border-green-200 bg-green-50',
+        rejected: 'border-red-200 bg-red-50 opacity-60',
+        unconfirmed: 'border-gray-200 bg-white'
+      }
+      
+      const item = document.createElement('div')
+      item.className = `flex items-center gap-3 
+        p-3 border rounded-lg text-sm 
+        ${stateColors[state]}`
+      
+      item.innerHTML = `
+        <div class="flex-1">
+          <div class="flex items-center gap-2">
+            <span class="font-mono text-xs 
+                         bg-blue-100 text-blue-700 
+                         px-2 py-0.5 rounded">
+              ${rel.file_1}
+            </span>
+            <span class="text-gray-500 font-bold">
+              ↔
+            </span>
+            <span class="font-mono text-xs 
+                         bg-green-100 text-green-700 
+                         px-2 py-0.5 rounded">
+              ${rel.file_2}
+            </span>
+          </div>
+          <div class="text-gray-500 text-xs mt-1">
+            ${rel.column_1} ↔ ${rel.column_2} 
+            · ${conf}% confidence
+            · ${rel.overlap_count} shared values
+          </div>
+        </div>
+        <div class="flex gap-1">
+          <button 
+            onclick="setRelState('${rel.relationship_id}', 'confirmed')"
+            class="px-2 py-1 text-xs rounded
+              ${state === 'confirmed' 
+                ? 'bg-green-500 text-white' 
+                : 'bg-gray-100 text-gray-600 hover:bg-green-100'}">
+            ✅
+          </button>
+          <button
+            onclick="setRelState('${rel.relationship_id}', 'rejected')"
+            class="px-2 py-1 text-xs rounded
+              ${state === 'rejected'
+                ? 'bg-red-500 text-white'
+                : 'bg-gray-100 text-gray-600 hover:bg-red-100'}">
+            ❌
+          </button>
+        </div>
+      `
+      
+      container.appendChild(item)
+    })
+  }
+
+  function setRelState(relId, state) {
+    relationshipStates[relId] = state
+    renderERDiagram()
+    renderRelationshipList()
+  }
+
+  // ─────────────────────────────────────
+  // PRIMARY KEY LIST
+  // ─────────────────────────────────────
+  function renderPrimaryKeyList() {
+    const container = document.getElementById(
+      'primary-key-list'
+    )
+    container.innerHTML = ''
+    
+    detectedPrimaryKeys.forEach(pk => {
+      const item = document.createElement('div')
+      item.className = [
+        'flex items-center gap-3 p-3',
+        'border border-yellow-200 bg-yellow-50',
+        'rounded-lg text-sm'
+      ].join(' ')
+      
+      item.innerHTML = `
+        <span class="text-lg">🔑</span>
+        <div class="flex-1">
+          <span class="font-mono text-xs 
+                       bg-yellow-100 text-yellow-800 
+                       px-2 py-0.5 rounded">
+            ${pk.file}
+          </span>
+          <span class="text-gray-600 mx-2">→</span>
+          <strong>${pk.column}</strong>
+        </div>
+        <span class="text-xs text-gray-500">
+          ${pk.reason}
+        </span>
+        <span class="text-xs px-2 py-0.5 rounded
+          ${pk.confidence === 'high' 
+            ? 'bg-green-100 text-green-700'
+            : 'bg-yellow-100 text-yellow-700'}">
+          ${pk.confidence}
+        </span>
+      `
+      
+      container.appendChild(item)
+    })
+  }
+
+  // ─────────────────────────────────────
+  // SAVE RELATIONSHIPS
+  // ─────────────────────────────────────
+  document.getElementById('save-relationships-btn')
+    .addEventListener('click', saveRelationships)
+
+  async function saveRelationships() {
+    const confirmed = Object.entries(relationshipStates)
+      .filter(([id, state]) => state === 'confirmed')
+      .map(([id]) => id)
+    
+    const rejected = Object.entries(relationshipStates)
+      .filter(([id, state]) => state === 'rejected')
+      .map(([id]) => id)
+    
+    // Load saved relationships from DB
+    // to get their database IDs
+    try {
+      const res = await fetch(
+        `${API_BASE}/workspaces/${currentWorkspaceId}/relationships`
+      )
+      const data = await res.json()
+      
+      // Confirm/reject each one
+      for (const rel of data.relationships) {
+        const relKey = detectedRelationships.find(
+          r => r.file_1 === rel.file_1 &&
+               r.column_1 === rel.column_1 &&
+               r.file_2 === rel.file_2 &&
+               r.column_2 === rel.column_2
+        )
+        
+        if (!relKey) continue
+        
+        const state = relationshipStates[
+          relKey.relationship_id
+        ] || 'unconfirmed'
+        
+        if (state === 'confirmed') {
+          await fetch(
+            `${API_BASE}/workspaces/${currentWorkspaceId}/relationships/${rel.id}/confirm`,
+            { method: 'POST' }
+          )
+        } else if (state === 'rejected') {
+          await fetch(
+            `${API_BASE}/workspaces/${currentWorkspaceId}/relationships/${rel.id}/reject`,
+            { method: 'POST' }
+          )
+        }
+      }
+      
+      alert(
+        `Saved! ${confirmed.length} confirmed, ` +
+        `${rejected.length} rejected.`
+      )
+      
+      // Auto-trigger unification
+      try {
+        const unifyRes = await fetch(
+          `${API_BASE}/workspaces/${currentWorkspaceId}/unify`,
+          { method: 'POST' }
+        )
+        const unifyData = await unifyRes.json()
+        
+        // Show unification report
+        showUnificationReport(unifyData)
+        
+      } catch (err) {
+        console.error('Unification error:', err)
+      }
+      
+    } catch (err) {
+      alert('Save failed: ' + err)
+    }
+  }
+
+  function showUnificationReport(report) {
+    console.log('Unification report:',
+                JSON.stringify(report, null, 2))
+
+    // Handle API error response (e.g. 404)
+    if (report.detail) {
+      const reportDiv = document.getElementById('unification-report') ||
+        (() => {
+          const d = document.createElement('div')
+          d.id = 'unification-report'
+          d.className = 'bg-white border border-red-200 rounded-lg shadow-sm p-6 mb-6'
+          document.querySelector('.max-w-7xl').appendChild(d)
+          return d
+        })()
+      reportDiv.innerHTML = `
+        <h2 class="text-base font-semibold text-red-800 mb-2">Unification Error</h2>
+        <p class="text-sm text-red-600">${report.detail}</p>
+      `
+      reportDiv.scrollIntoView({ behavior: 'smooth' })
+      return
+    }
+
+    // Create report section if not exists
+    let reportDiv = document.getElementById(
+      'unification-report'
+    )
+    if (!reportDiv) {
+      reportDiv = document.createElement('div')
+      reportDiv.id = 'unification-report'
+      reportDiv.className = [
+        'bg-white border border-gray-200',
+        'rounded-lg shadow-sm p-6 mb-6'
+      ].join(' ')
+      
+      document.querySelector('.max-w-7xl')
+        .appendChild(reportDiv)
+    }
+    
+    const orphanHtml = report.orphan_records?.length 
+      ? `<div class="mt-4">
+          <p class="text-sm font-medium 
+                     text-red-600 mb-2">
+            ⚠️ Orphan Records Found:
+          </p>
+          ${report.orphan_records.map(o => `
+            <div class="text-xs text-red-500 
+                        bg-red-50 p-2 rounded mb-1">
+              ${o.issue}
+            </div>
+          `).join('')}
+         </div>`
+      : '<p class="text-xs text-green-600 mt-2">✅ No orphan records found</p>'
+    
+    reportDiv.innerHTML = `
+      <h2 class="text-base font-semibold 
+                 text-gray-800 mb-4">
+        🧹 Data Unification Report
+      </h2>
+      
+      <div class="grid grid-cols-4 gap-4 mb-4">
+        <div class="bg-blue-50 rounded-lg p-3 
+                    text-center">
+          <div class="text-2xl font-bold 
+                      text-blue-600">
+            ${report.files_processed}
+          </div>
+          <div class="text-xs text-gray-500 mt-1">
+            Files Processed
+          </div>
+        </div>
+        <div class="bg-green-50 rounded-lg p-3 
+                    text-center">
+          <div class="text-2xl font-bold 
+                      text-green-600">
+            ${report.duplicates_removed}
+          </div>
+          <div class="text-xs text-gray-500 mt-1">
+            Duplicates Removed
+          </div>
+        </div>
+        <div class="bg-purple-50 rounded-lg p-3 
+                    text-center">
+          <div class="text-2xl font-bold 
+                      text-purple-600">
+            ${report.columns_enriched ?? report.records_enriched}
+          </div>
+          <div class="text-xs text-gray-500 mt-1">
+            Cross-file Columns Added
+          </div>
+        </div>
+        <div class="bg-yellow-50 rounded-lg p-3 
+                    text-center">
+          <div class="text-2xl font-bold 
+                      text-yellow-600">
+            ${report.format_fixes}
+          </div>
+          <div class="text-xs text-gray-500 mt-1">
+            Format Fixes
+          </div>
+        </div>
+      </div>
+      
+      <div class="space-y-2 mb-4">
+        ${(report.unified_tables || []).map(t => `
+          <div class="flex items-center gap-3 
+                      p-2 bg-gray-50 rounded 
+                      text-sm">
+            <span class="font-mono text-xs 
+                         bg-indigo-100 
+                         text-indigo-700 
+                         px-2 py-0.5 rounded">
+              ${t.file}
+            </span>
+            <span class="text-gray-600">
+              ${t.clean_rows} clean rows
+            </span>
+            ${t.dupes_removed > 0 
+              ? `<span class="text-green-600 
+                             text-xs">
+                     -${t.dupes_removed} dupes
+                 </span>` 
+              : ''}
+            <span class="text-gray-400 text-xs 
+                         ml-auto">
+              ${t.columns} columns
+            </span>
+          </div>
+        `).join('')}
+      </div>
+      
+      ${orphanHtml}
+      
+      <div class="mt-4 p-3 bg-green-50 
+                  border border-green-200 
+                  rounded-lg text-sm 
+                  text-green-700">
+        ✅ Unified dataset ready. 
+        You can now ask questions across 
+        all files in the chat.
+      </div>
+    `
+    
+    // Scroll to report
+    reportDiv.scrollIntoView({ behavior: 'smooth' })
+
+    // Show chat section
+    document.getElementById(
+      'workspace-chat-section'
+    ).style.display = 'block'
+
+    // Scroll to chat
+    setTimeout(() => {
+      document.getElementById(
+        'workspace-chat-section'
+      ).scrollIntoView({ behavior: 'smooth' })
+    }, 500)
+  }
+
+  // ─────────────────────────────────────
+  // WORKSPACE CHAT
+  // ─────────────────────────────────────
+  async function sendWorkspaceChat() {
+    const input = document.getElementById(
+      'workspace-chat-input'
+    )
+    const question = input.value.trim()
+    if (!question) return
+
+    console.log('Sending to:',
+        `${API_BASE}/workspaces/${currentWorkspaceId}/chat`)
+    console.log('Workspace ID:', currentWorkspaceId)
+
+    const messages = document.getElementById(
+      'workspace-chat-messages'
+    )
+
+    // Add user message
+    const userMsg = document.createElement('div')
+    userMsg.className = 'flex justify-end'
+    userMsg.innerHTML = `
+        <div class="bg-indigo-500 text-white 
+                    rounded-lg px-3 py-2 
+                    text-sm max-w-lg">
+            ${question}
+        </div>
+    `
+    messages.appendChild(userMsg)
+
+    // Add loading indicator
+    const loadingMsg = document.createElement('div')
+    loadingMsg.id = 'workspace-loading'
+    loadingMsg.className = 'flex justify-start'
+    loadingMsg.innerHTML = `
+        <div class="bg-gray-100 rounded-lg 
+                    px-3 py-2 text-sm 
+                    text-gray-500">
+            ⏳ Analyzing across all files...
+        </div>
+    `
+    messages.appendChild(loadingMsg)
+    messages.scrollTop = messages.scrollHeight
+
+    input.value = ''
+
+    try {
+      const res = await fetch(
+        `${API_BASE}/workspaces/${currentWorkspaceId}/chat`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ question })
+        }
+      )
+
+      // Check if response is ok first
+      if (!res.ok) {
+        const errData = await res.json()
+          .catch(() => ({
+            detail: 'Server error'
+          }))
+        throw new Error(
+          errData.detail || 'Request failed'
+        )
+      }
+
+      const data = await res.json()
+
+      // Remove loading
+      document.getElementById(
+        'workspace-loading'
+      )?.remove()
+
+      // Add answer
+      const answerMsg = document.createElement('div')
+      answerMsg.className = 'flex justify-start'
+      answerMsg.innerHTML = `
+            <div class="bg-gray-100 rounded-lg 
+                        px-3 py-2 text-sm 
+                        text-gray-800 max-w-lg">
+                ${(data.answer || 'No answer').replace(/\n/g, '<br>')}
+                <div class="mt-2 flex flex-wrap gap-1">
+                    ${(data.files_used || []).map(f => `
+                        <span class="text-xs 
+                                     bg-indigo-100 
+                                     text-indigo-600 
+                                     px-1.5 py-0.5 
+                                     rounded">
+                            ${f}
+                        </span>
+                    `).join('')}
+                </div>
+            </div>
+        `
+      messages.appendChild(answerMsg)
+      messages.scrollTop = messages.scrollHeight
+
+    } catch (err) {
+      document.getElementById(
+        'workspace-loading'
+      )?.remove()
+
+      console.error('Workspace chat error:', err)
+      console.error('URL was:', `${API_BASE}/workspaces/${currentWorkspaceId}/chat`)
+
+      const errMsg = document.createElement('div')
+      errMsg.innerHTML = `
+            <div class="text-red-500 text-sm">
+                Error: ${err.message}
+            </div>
+        `
+      messages.appendChild(errMsg)
+    }
+  }
+
+  // Wire up send button and enter key
+  document.getElementById('workspace-chat-send')
+    .addEventListener('click', sendWorkspaceChat)
+
+  document.getElementById('workspace-chat-input')
+    .addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') sendWorkspaceChat()
+    })
+
+  </script>
+</body>
+</html>

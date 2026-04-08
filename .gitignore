@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+
+# Environment - NEVER commit this
+.env
+*.env
+
+# Database - contains sensitive data
+storage/*.db
+*.db
+
+# Commission files - confidential
+test_data/
+*.xlsx
+*.xls
+*.xlsm
+*.pdf
+*.txt
+*.csv
+*.slk
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.cursor/
+.vscode/
+.idea/
+
+# Installed libraries (should use pip install)
+openpyxl/
+openpyxl-*.dist-info/
+et_xmlfile/
+et_xmlfile-*.dist-info/
+
+# Debug scripts
+check_*.py
+debug_*.py
+diagnose_*.py
+DEBUG_*.md
+
+# Test reports
+INTEGRATION_TEST_*.md
+INTEGRATION_TEST_*.txt
