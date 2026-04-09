@@ -487,6 +487,16 @@ def verify_template_columns(file_path, template):
         col_name = template.get(field)
         if not col_name:
             continue
+        if (
+            field == 'commission_amount'
+            and ' - ' in str(col_name)
+        ):
+            parts = str(col_name).split(' - ', 1)
+            for p in parts:
+                p = p.strip()
+                if p and not header_matches(p):
+                    missing.append(p)
+            continue
         if not header_matches(col_name):
             missing.append(col_name)
 

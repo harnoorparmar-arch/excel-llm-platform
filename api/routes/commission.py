@@ -231,6 +231,45 @@ async def export_to_csv(request: dict):
                 po.get('po_source', 'extracted')
             ])
 
+    ra_list = request.get("rebates_adjustments") or []
+    if ra_list:
+        writer.writerow([])
+        writer.writerow([
+            "TYPE",
+            "Invoice Name",
+            "Dealer",
+            "Factory",
+            "Sales Person",
+            "Invoice Date",
+            "Invoice Amount",
+            "Commissionable Sales",
+            "Origination",
+            "Specification",
+            "Destination",
+            "Paid Commission",
+            "Check #",
+            "Payment Date",
+            "Paid Status",
+        ])
+        for ra in ra_list:
+            writer.writerow([
+                str(ra.get("type", "")).upper(),
+                ra.get("invoice_name", ""),
+                ra.get("dealer", ""),
+                ra.get("factory", ""),
+                ra.get("sales_person", ""),
+                ra.get("invoice_date", ""),
+                ra.get("invoice_amount", ""),
+                ra.get("commissionable_sales", ""),
+                ra.get("origination_amount", ""),
+                ra.get("spec_amount", ""),
+                ra.get("dest_amount", ""),
+                ra.get("paid_commission", ""),
+                ra.get("check_number", ""),
+                ra.get("payment_date", ""),
+                ra.get("paid_status", ""),
+            ])
+
     output.seek(0)
     safe_mfr = manufacturer.replace(' ', '_').replace('/', '_')
     safe_period = period.replace(' ', '_')

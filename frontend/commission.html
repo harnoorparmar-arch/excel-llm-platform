@@ -171,6 +171,48 @@
           <div id="no-po-items-container"></div>
         </div>
 
+        <div id="rebate-adjustment-section"
+             style="display:none"
+             class="mt-6 mb-8">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-semibold text-gray-800">
+              ⚖️ Rebates &amp; Adjustments
+            </h3>
+            <div class="flex gap-2">
+              <button id="add-rebate-btn"
+                      type="button"
+                      class="px-3 py-1.5 text-sm bg-red-50 text-red-700 border border-red-200 rounded-lg hover:bg-red-100">
+                − Add Rebate
+              </button>
+              <button id="add-adjustment-btn"
+                      type="button"
+                      class="px-3 py-1.5 text-sm bg-green-50 text-green-700 border border-green-200 rounded-lg hover:bg-green-100">
+                + Add Adjustment
+              </button>
+            </div>
+          </div>
+          <p class="text-sm text-gray-500 mb-4">
+            Rebates reduce total commission. Adjustments increase total commission.
+            Both are included in the CSV export and Salesforce filing.
+          </p>
+          <div id="rebate-adjustment-list" class="space-y-3"></div>
+          <div id="ra-summary"
+               class="hidden mt-4 p-3 bg-gray-50 rounded-lg text-sm">
+            <div class="flex justify-between items-center">
+              <span class="text-gray-600">Total Rebates:</span>
+              <span id="total-rebates" class="text-red-600 font-medium">-$0.00</span>
+            </div>
+            <div class="flex justify-between items-center mt-1">
+              <span class="text-gray-600">Total Adjustments:</span>
+              <span id="total-adjustments" class="text-green-600 font-medium">+$0.00</span>
+            </div>
+            <div class="flex justify-between items-center mt-2 pt-2 border-t border-gray-200">
+              <span class="font-medium text-gray-700">Net Impact:</span>
+              <span id="net-ra-impact" class="font-semibold">$0.00</span>
+            </div>
+          </div>
+        </div>
+
       </div>
 
       <!-- SECTION 5 - Action Bar (fixed bottom) -->
@@ -227,6 +269,8 @@
     let approvedNoPOItems = [];
     let currentFilter = 'all';
     let batchApprovedKeys = new Set();
+    let rebatesAndAdjustments = [];
+    let raIdCounter = 0;
 
     // --- Upload Zone ---
     const dropZone = document.getElementById('dropZone');
@@ -375,6 +419,186 @@
         el.classList.add('bg-amber-50', 'border-amber-200', 'text-amber-800');
         el.classList.remove('bg-red-50', 'border-red-200', 'text-red-700');
       }
+    }
+
+    function renderRAEntry(entry) {
+      const div = document.createElement('div');
+      div.id = 'ra-entry-' + entry.id;
+      div.className = 'border rounded-lg p-4 ' +
+        (entry.type === 'rebate'
+          ? 'border-red-200 bg-red-50'
+          : 'border-green-200 bg-green-50');
+
+      const invName = escapeHtml(entry.invoice_name || '');
+      const dealer = escapeHtml(entry.dealer || '');
+      const factory = escapeHtml(entry.factory || '');
+      const salesPerson = escapeHtml(entry.sales_person || '');
+      const invDate = escapeHtml(entry.invoice_date || '');
+      const invAmt = entry.invoice_amount !== undefined && entry.invoice_amount !== '' ? entry.invoice_amount : '';
+      const commSales = entry.commissionable_sales !== undefined && entry.commissionable_sales !== '' ? entry.commissionable_sales : '';
+      const origAmt = entry.origination_amount !== undefined && entry.origination_amount !== '' ? entry.origination_amount : '';
+      const specAmt = entry.spec_amount !== undefined && entry.spec_amount !== '' ? entry.spec_amount : '';
+      const destAmt = entry.dest_amount !== undefined && entry.dest_amount !== '' ? entry.dest_amount : '';
+      const paidComm = entry.paid_commission !== undefined && entry.paid_commission !== '' ? entry.paid_commission : '';
+      const checkNum = escapeHtml(entry.check_number || '');
+      const payDate = escapeHtml(entry.payment_date || '');
+      const pendSel = entry.paid_status === 'pending' ? 'selected' : '';
+      const paidSel = entry.paid_status === 'paid' ? 'selected' : '';
+      const unpaidSel = entry.paid_status === 'unpaid' ? 'selected' : '';
+
+      div.innerHTML = `
+    <div class="flex items-center justify-between mb-3">
+      <span class="text-sm font-semibold ${entry.type === 'rebate' ? 'text-red-700' : 'text-green-700'}">
+        ${entry.type === 'rebate' ? '− Rebate' : '+ Adjustment'}
+      </span>
+      <button type="button" class="ra-delete text-xs text-gray-400 hover:text-red-500" data-id="${entry.id}">✕ Remove</button>
+    </div>
+    <div class="grid grid-cols-2 gap-3 md:grid-cols-3">
+      <div>
+        <label class="text-xs text-gray-500">Invoice Name</label>
+        <input type="text" class="ra-field w-full border rounded px-2 py-1 text-sm mt-1" data-id="${entry.id}" data-field="invoice_name" value="${invName}" placeholder="Invoice name">
+      </div>
+      <div>
+        <label class="text-xs text-gray-500">Dealer</label>
+        <input type="text" class="ra-field w-full border rounded px-2 py-1 text-sm mt-1" data-id="${entry.id}" data-field="dealer" value="${dealer}" placeholder="Dealer name">
+      </div>
+      <div>
+        <label class="text-xs text-gray-500">Factory</label>
+        <input type="text" class="ra-field w-full border rounded px-2 py-1 text-sm mt-1" data-id="${entry.id}" data-field="factory" value="${factory}" placeholder="Manufacturer">
+      </div>
+      <div>
+        <label class="text-xs text-gray-500">Sales Person</label>
+        <input type="text" class="ra-field w-full border rounded px-2 py-1 text-sm mt-1" data-id="${entry.id}" data-field="sales_person" value="${salesPerson}" placeholder="Sales rep name">
+      </div>
+      <div>
+        <label class="text-xs text-gray-500">Invoice Date</label>
+        <input type="date" class="ra-field w-full border rounded px-2 py-1 text-sm mt-1" data-id="${entry.id}" data-field="invoice_date" value="${invDate}">
+      </div>
+      <div>
+        <label class="text-xs text-gray-500">Invoice Amount</label>
+        <input type="number" step="0.01" class="ra-field w-full border rounded px-2 py-1 text-sm mt-1" data-id="${entry.id}" data-field="invoice_amount" value="${invAmt}" placeholder="0.00">
+      </div>
+      <div>
+        <label class="text-xs text-gray-500">Commissionable Sales</label>
+        <input type="number" step="0.01" class="ra-field w-full border rounded px-2 py-1 text-sm mt-1" data-id="${entry.id}" data-field="commissionable_sales" value="${commSales}" placeholder="0.00">
+      </div>
+      <div>
+        <label class="text-xs text-gray-500">Origination Amount</label>
+        <input type="number" step="0.01" class="ra-field w-full border rounded px-2 py-1 text-sm mt-1" data-id="${entry.id}" data-field="origination_amount" value="${origAmt}" placeholder="0.00">
+      </div>
+      <div>
+        <label class="text-xs text-gray-500">Specification Amount</label>
+        <input type="number" step="0.01" class="ra-field w-full border rounded px-2 py-1 text-sm mt-1" data-id="${entry.id}" data-field="spec_amount" value="${specAmt}" placeholder="0.00">
+      </div>
+      <div>
+        <label class="text-xs text-gray-500">Destination Amount</label>
+        <input type="number" step="0.01" class="ra-field w-full border rounded px-2 py-1 text-sm mt-1" data-id="${entry.id}" data-field="dest_amount" value="${destAmt}" placeholder="0.00">
+      </div>
+      <div>
+        <label class="text-xs text-gray-500">Paid Commission</label>
+        <input type="number" step="0.01" class="ra-field w-full border rounded px-2 py-1 text-sm mt-1" data-id="${entry.id}" data-field="paid_commission" value="${paidComm}" placeholder="0.00">
+      </div>
+      <div>
+        <label class="text-xs text-gray-500">Check #</label>
+        <input type="text" class="ra-field w-full border rounded px-2 py-1 text-sm mt-1" data-id="${entry.id}" data-field="check_number" value="${checkNum}" placeholder="Check number">
+      </div>
+      <div>
+        <label class="text-xs text-gray-500">Payment Date</label>
+        <input type="date" class="ra-field w-full border rounded px-2 py-1 text-sm mt-1" data-id="${entry.id}" data-field="payment_date" value="${payDate}">
+      </div>
+      <div>
+        <label class="text-xs text-gray-500">Commission Paid Status</label>
+        <select class="ra-field w-full border rounded px-2 py-1 text-sm mt-1" data-id="${entry.id}" data-field="paid_status">
+          <option value="pending" ${pendSel}>Pending</option>
+          <option value="paid" ${paidSel}>Paid</option>
+          <option value="unpaid" ${unpaidSel}>Unpaid</option>
+        </select>
+      </div>
+    </div>`;
+
+      function syncField(input) {
+        const id = parseInt(input.dataset.id, 10);
+        const field = input.dataset.field;
+        const ent = rebatesAndAdjustments.find(e => e.id === id);
+        if (!ent) return;
+        if (input.type === 'number') {
+          ent[field] = input.value === '' ? 0 : parseFloat(input.value);
+          if (Number.isNaN(ent[field])) ent[field] = 0;
+        } else {
+          ent[field] = input.value;
+        }
+        updateRATotal();
+      }
+
+      div.querySelectorAll('.ra-field').forEach(input => {
+        input.addEventListener('change', () => syncField(input));
+        input.addEventListener('input', () => syncField(input));
+      });
+
+      div.querySelector('.ra-delete').addEventListener('click', () => {
+        rebatesAndAdjustments = rebatesAndAdjustments.filter(e => e.id !== entry.id);
+        div.remove();
+        updateRATotal();
+      });
+
+      document.getElementById('rebate-adjustment-list').appendChild(div);
+    }
+
+    function addRebateOrAdjustment(type) {
+      const mfr = (resultData && resultData.summary && resultData.summary.manufacturer) ? resultData.summary.manufacturer : '';
+      const entry = {
+        id: ++raIdCounter,
+        type: type,
+        invoice_name: '',
+        dealer: '',
+        factory: mfr,
+        sales_person: '',
+        invoice_date: '',
+        invoice_amount: 0,
+        commissionable_sales: 0,
+        origination_amount: 0,
+        spec_amount: 0,
+        dest_amount: 0,
+        paid_commission: 0,
+        check_number: '',
+        payment_date: '',
+        paid_status: 'pending'
+      };
+      rebatesAndAdjustments.push(entry);
+      renderRAEntry(entry);
+      updateRATotal();
+      const raSec = document.getElementById('rebate-adjustment-section');
+      if (raSec) raSec.style.display = 'block';
+    }
+
+    function updateRATotal() {
+      const totalRebates = rebatesAndAdjustments
+        .filter(e => e.type === 'rebate')
+        .reduce((sum, e) => sum + (e.paid_commission || 0), 0);
+      const totalAdjustments = rebatesAndAdjustments
+        .filter(e => e.type === 'adjustment')
+        .reduce((sum, e) => sum + (e.paid_commission || 0), 0);
+      const netImpact = totalAdjustments - totalRebates;
+
+      const trEl = document.getElementById('total-rebates');
+      const taEl = document.getElementById('total-adjustments');
+      const netEl = document.getElementById('net-ra-impact');
+      if (trEl) {
+        trEl.textContent = '-$' + totalRebates.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      }
+      if (taEl) {
+        taEl.textContent = '+$' + totalAdjustments.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      }
+      if (netEl) {
+        const sign = netImpact >= 0 ? '+' : '-';
+        netEl.textContent = sign + '$' + Math.abs(netImpact).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        netEl.className = netImpact >= 0 ? 'font-semibold text-green-600' : 'font-semibold text-red-600';
+      }
+      const raSum = document.getElementById('ra-summary');
+      if (raSum) {
+        raSum.classList.toggle('hidden', rebatesAndAdjustments.length === 0);
+      }
+      updateBottomBar();
     }
 
     function getGroupKey(group) {
@@ -530,6 +754,12 @@
       poStates = {};
       poEdits = {};
       approvedNoPOItems = [];
+      rebatesAndAdjustments = [];
+      raIdCounter = 0;
+      const raList = document.getElementById('rebate-adjustment-list');
+      if (raList) raList.innerHTML = '';
+      const raSummary = document.getElementById('ra-summary');
+      if (raSummary) raSummary.classList.add('hidden');
       expandedRows.clear();
       batchApprovedKeys.clear();
       (combined.po_groups || []).forEach(g => {
@@ -544,6 +774,13 @@
       processFiles(uploadedFiles);
     });
 
+    document.getElementById('add-rebate-btn')?.addEventListener('click', () => {
+      addRebateOrAdjustment('rebate');
+    });
+    document.getElementById('add-adjustment-btn')?.addEventListener('click', () => {
+      addRebateOrAdjustment('adjustment');
+    });
+
     // --- Render ---
     function renderAll() {
       if (!resultData) return;
@@ -553,6 +790,8 @@
       updateBottomBar();
       updateFilterButtons();
       document.getElementById('invoice-search-bar').classList.remove('hidden');
+      const raSec = document.getElementById('rebate-adjustment-section');
+      if (raSec) raSec.style.display = 'block';
     }
 
     function renderSummary() {
@@ -637,6 +876,11 @@
       };
     }
 
+    function isVoucherPOGroup(group) {
+      const p = (group.po_number || '').toString().toUpperCase();
+      return p.startsWith('VOUCHER-');
+    }
+
     function renderTable() {
       document.getElementById('table-section').classList.remove('hidden');
       const tbody = document.getElementById('po-table-body');
@@ -644,7 +888,20 @@
 
       const currentFileCount = (resultData.summary && resultData.summary.files_processed) || 0;
       const multiFile = currentFileCount > 1;
-      resultData.po_groups.forEach((group, idx) => {
+      const poGroups = resultData.po_groups || [];
+      const regularGroups = poGroups.filter(function (g) { return !isVoucherPOGroup(g); });
+      const voucherGroups = poGroups.filter(function (g) { return isVoucherPOGroup(g); });
+      const orderedGroups = regularGroups.concat(voucherGroups);
+      let voucherSeparatorShown = false;
+      orderedGroups.forEach(function (group) {
+        const idx = poGroups.indexOf(group);
+        const isVoucher = isVoucherPOGroup(group);
+        if (isVoucher && !voucherSeparatorShown) {
+          voucherSeparatorShown = true;
+          const sepTr = document.createElement('tr');
+          sepTr.innerHTML = '<td colspan="9" class="px-4 py-2 bg-gray-100 text-xs font-medium text-gray-500 uppercase tracking-wider">Voucher / Distributor Allocations (' + voucherGroups.length + ' entries)</td>';
+          tbody.appendChild(sepTr);
+        }
         const key = getGroupKey(group);
         const disp = getGroupDisplay(group);
         const visible = rowMatchesFilter(group);
@@ -664,7 +921,10 @@
         }
 
         const tr = document.createElement('tr');
-        tr.className = `${rowClass} ${visible ? '' : 'hidden'} border-b border-gray-100 hover:bg-gray-50/50 cursor-pointer`;
+        const voucherRowClass = isVoucher
+          ? 'bg-gray-50 border-b border-gray-100'
+          : 'border-b border-gray-100';
+        tr.className = `${voucherRowClass} ${rowClass} ${visible ? '' : 'hidden'} hover:bg-gray-50/50 cursor-pointer`;
         tr.dataset.po = key;
         tr.dataset.poIdx = idx;
         tr.onclick = (ev) => {
@@ -874,7 +1134,10 @@
 
         if (isExpanded) {
           const expandTr = document.createElement('tr');
-          expandTr.className = `${rowClass} ${visible ? '' : 'hidden'}`;
+          const expandVoucherClass = isVoucher
+            ? 'bg-gray-50 border-b border-gray-100'
+            : '';
+          expandTr.className = `${expandVoucherClass} ${rowClass} ${visible ? '' : 'hidden'}`.trim();
           expandTr.dataset.po = key;
           expandTr.dataset.poIdx = idx;
           expandTr.dataset.expand = '1';
@@ -1127,15 +1390,22 @@
         0
       );
 
-      const totalApproved = approvedPOs.length + approvedNoPOItems.length;
-      const totalCommission = poTotal + noPOTotal;
+      const totalRebatesRA = rebatesAndAdjustments
+        .filter(e => e.type === 'rebate')
+        .reduce((sum, e) => sum + (e.paid_commission || 0), 0);
+      const totalAdjustmentsRA = rebatesAndAdjustments
+        .filter(e => e.type === 'adjustment')
+        .reduce((sum, e) => sum + (e.paid_commission || 0), 0);
+
+      const approvedRowCount = approvedPOs.length + approvedNoPOItems.length;
+      const totalCommission = poTotal + noPOTotal + totalAdjustmentsRA - totalRebatesRA;
 
       const skipped = Object.values(poStates).filter(s => s === 'skipped').length;
       const pending = poGroups.length - approvedPOs.length - skipped;
 
       document.getElementById('action-bar').classList.remove('hidden');
       document.getElementById('action-bar-spacer').classList.remove('hidden');
-      document.getElementById('bar-approved').textContent = totalApproved;
+      document.getElementById('bar-approved').textContent = approvedRowCount;
       document.getElementById('bar-skipped').textContent = skipped;
       document.getElementById('bar-pending').textContent = pending;
       const approvedAmtEl = document.getElementById('approved-amount');
@@ -1147,10 +1417,34 @@
           }) + ' approved';
       }
 
+      const summaryCommEl = document.getElementById('summary-total-commission');
+      if (summaryCommEl) {
+        const hasApprovedOrRA =
+          approvedRowCount > 0 || rebatesAndAdjustments.length > 0;
+        if (hasApprovedOrRA) {
+          summaryCommEl.textContent =
+            '$' + totalCommission.toLocaleString('en-US', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2
+            });
+        } else {
+          const fileTotal =
+            resultData.summary && resultData.summary.total_commission != null
+              ? resultData.summary.total_commission
+              : 0;
+          summaryCommEl.textContent =
+            '$' + Number(fileTotal).toLocaleString('en-US', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2
+            });
+        }
+      }
+
       const exportCsvBtn = document.getElementById('export-csv-btn');
       const fileSalesforceBtn = document.getElementById('file-salesforce-btn');
-      if (exportCsvBtn) exportCsvBtn.disabled = totalApproved < 1;
-      if (fileSalesforceBtn) fileSalesforceBtn.disabled = totalApproved < 1;
+      const canExport = approvedRowCount > 0 || rebatesAndAdjustments.length > 0;
+      if (exportCsvBtn) exportCsvBtn.disabled = !canExport;
+      if (fileSalesforceBtn) fileSalesforceBtn.disabled = !canExport;
     }
 
     // Approve All Clean
@@ -1158,7 +1452,8 @@
       batchApprovedKeys.clear();
       resultData.po_groups.forEach(g => {
         const key = getGroupKey(g);
-        if (!g.needs_review && (poStates[key] || 'pending') === 'pending') {
+        const clean = !g.needs_review || isVoucherPOGroup(g);
+        if (clean && (poStates[key] || 'pending') === 'pending') {
           poStates[key] = 'approved';
           batchApprovedKeys.add(key);
         }
@@ -1226,8 +1521,8 @@
       const approved = poGroups.filter(function (g) {
         return poStates[getGroupKey(g)] === 'approved';
       });
-      if (approved.length === 0 && approvedNoPOItems.length === 0) {
-        alert('No approved items to export');
+      if (approved.length === 0 && approvedNoPOItems.length === 0 && rebatesAndAdjustments.length === 0) {
+        alert('No approved items or rebates/adjustments to export');
         return;
       }
       const summaryData = resultData.summary || {};
@@ -1267,7 +1562,8 @@
       const payload = {
         manufacturer: summaryData.manufacturer != null ? summaryData.manufacturer : '',
         period: summaryData.period != null ? summaryData.period : '',
-        approved_pos: approvedGroups.concat(nopoAsPos)
+        approved_pos: approvedGroups.concat(nopoAsPos),
+        rebates_adjustments: rebatesAndAdjustments
       };
       try {
         const response = await fetch(API_BASE + '/commission/export-csv', {
@@ -1287,7 +1583,9 @@
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-        showToast('Exported ' + payload.approved_pos.length + ' POs to CSV');
+        const nPo = payload.approved_pos.length;
+        const nRa = (payload.rebates_adjustments || []).length;
+        showToast('Exported ' + nPo + ' PO row(s)' + (nRa ? ', ' + nRa + ' rebate/adj.' : '') + ' to CSV');
       } catch (err) {
         alert('Export failed: ' + (err.message || err));
       }
@@ -1298,9 +1596,14 @@
       const approved = resultData.po_groups.filter(g => poStates[getGroupKey(g)] === 'approved');
       const poTotal = approved.reduce((sum, g) => sum + (getGroupDisplay(g).total_commission != null ? getGroupDisplay(g).total_commission : 0), 0);
       const nopoTotal = approvedNoPOItems.reduce((sum, i) => sum + (i.commission_amount != null ? i.commission_amount : 0), 0);
-      const total = poTotal + nopoTotal;
+      const raReb = rebatesAndAdjustments.filter(e => e.type === 'rebate').reduce((s, e) => s + (e.paid_commission || 0), 0);
+      const raAdj = rebatesAndAdjustments.filter(e => e.type === 'adjustment').reduce((s, e) => s + (e.paid_commission || 0), 0);
+      const total = poTotal + nopoTotal + raAdj - raReb;
       const count = approved.length + approvedNoPOItems.length;
-      document.getElementById('file-modal-text').textContent = `Filing ${count} POs totaling $${total.toLocaleString('en-US', { minimumFractionDigits: 2 })} to Salesforce`;
+      const raLine = rebatesAndAdjustments.length
+        ? ` (${rebatesAndAdjustments.length} rebate/adj. line${rebatesAndAdjustments.length === 1 ? '' : 's'})`
+        : '';
+      document.getElementById('file-modal-text').textContent = `Filing ${count} POs${raLine} totaling $${total.toLocaleString('en-US', { minimumFractionDigits: 2 })} to Salesforce`;
       document.getElementById('file-modal').classList.remove('hidden');
     });
 
@@ -1340,7 +1643,8 @@
         period: summaryData.period,
         document_hash: resultData.document_hash,
         file_name: resultData.file_name,
-        approved_pos: [...approvedGroups, ...nopoAsPos]
+        approved_pos: [...approvedGroups, ...nopoAsPos],
+        rebates_adjustments: rebatesAndAdjustments
       };
       try {
         const fileResponse = await fetch(API_BASE + '/commission/file', {

@@ -128,6 +128,69 @@ def read_txt(file_path):
         raise ValueError(f"TXT read error: {e}")
 
 
+def _parse_slk_cells(file_path):
+    """
+    Parse SYLK (SLK) C; records into a (row, col) -> value map.
+    Shared by read_slk and _slk_manual_parse_to_dataframe.
+    """
+    with open(
+        file_path, 'r',
+        encoding='latin-1',
+        errors='replace',
+    ) as f:
+        content = f.read()
+
+    lines = content.split('\n')
+    cells = {}
+    current_row = None
+    max_col = 0
+
+    for line in lines:
+        line = line.strip().rstrip('\r')
+        if not line.startswith('C;'):
+            continue
+
+        parts = line.split(';')
+        x = None
+        value = None
+
+        for part in parts:
+            if part.startswith('Y'):
+                try:
+                    current_row = int(part[1:])
+                except Exception:
+                    pass
+            elif part.startswith('X'):
+                try:
+                    x = int(part[1:])
+                    max_col = max(max_col, x)
+                except Exception:
+                    pass
+            elif part.startswith('K'):
+                raw = part[1:]
+                if (
+                    raw.startswith('"')
+                    and raw.endswith('"')
+                ):
+                    value = raw[1:-1]
+                else:
+                    try:
+                        value = float(raw)
+                        if value == int(value):
+                            value = int(value)
+                    except Exception:
+                        value = raw
+
+        if (
+            current_row
+            and x is not None
+            and value is not None
+        ):
+            cells[(current_row, x)] = value
+
+    return cells, max_col
+
+
 def _slk_manual_parse_to_dataframe(file_path):
     """
     Parse SYLK (SLK) text into a pandas DataFrame.
@@ -135,52 +198,17 @@ def _slk_manual_parse_to_dataframe(file_path):
     """
     import pandas as pd
 
-    cells = {}
-    max_row = 0
-    max_col = 0
-
-    with open(file_path, 'r', encoding='latin-1', errors='replace') as f:
-        for line in f:
-            line = line.strip()
-            if not line.startswith('C;'):
-                continue
-            parts = [p.strip() for p in line.split(';')]
-            x = y = None
-            val = ''
-            for p in parts[1:]:
-                if not p:
-                    continue
-                tag = p[0].upper()
-                rest = p[1:]
-                if tag == 'X':
-                    digits = ''.join(c for c in rest if c.isdigit())
-                    if digits:
-                        try:
-                            x = int(digits)
-                        except ValueError:
-                            pass
-                elif tag == 'Y':
-                    digits = ''.join(c for c in rest if c.isdigit())
-                    if digits:
-                        try:
-                            y = int(digits)
-                        except ValueError:
-                            pass
-                elif tag == 'K':
-                    val = rest
-                    if len(val) >= 2 and val[0] == '"' and val[-1] == '"':
-                        val = val[1:-1]
-            if x is not None and y is not None and x > 0 and y > 0:
-                cells[(y, x)] = val
-                max_row = max(max_row, y)
-                max_col = max(max_col, x)
-
-    if max_row < 1 or max_col < 1:
+    cells, max_col = _parse_slk_cells(file_path)
+    if not cells or max_col < 1:
         return None
 
+    max_row = max(r for r, c in cells.keys())
     grid = []
     for r in range(1, max_row + 1):
-        row = [cells.get((r, c), '') for c in range(1, max_col + 1)]
+        row = [
+            cells.get((r, c), '')
+            for c in range(1, max_col + 1)
+        ]
         grid.append(row)
 
     if not grid:
@@ -213,46 +241,47 @@ def load_slk_dataframe(file_path):
 
 
 def read_slk(file_path):
-    """
-    Read SLK (Symbolic Link / SYLK) into pipe-separated text
-    similar to read_excel output (for LLM / hash).
-    """
-    import pandas as pd
-
+    '''
+    Parse SLK (Symbolic Link) spreadsheet
+    format. Returns pipe-separated rows
+    same format as read_excel output.
+    '''
     try:
-        df = pd.read_excel(file_path, engine='xlrd')
-    except Exception:
-        df = _slk_manual_parse_to_dataframe(file_path)
+        cells, max_col = _parse_slk_cells(file_path)
 
-    if df is None or df.empty:
+        if not cells:
+            return ''
+
+        max_row = max(r for r, c in cells.keys())
+
+        # Build rows
+        rows = []
+        for row_num in range(1, min(
+            max_row + 1, 3002
+        )):
+            row_vals = []
+            for col_num in range(1, max_col + 1):
+                val = cells.get(
+                    (row_num, col_num), ''
+                )
+                row_vals.append(
+                    str(val) if val != '' else ''
+                )
+
+            # Skip completely empty rows
+            if any(v for v in row_vals):
+                rows.append(' | '.join(row_vals))
+
+        result = '\n'.join(rows)
+        print(
+            f'  SLK extracted: {len(rows)} rows, '
+            f'{max_col} cols'
+        )
+        return result
+
+    except Exception as e:
+        print(f'  SLK read error: {e}')
         return ''
-
-    lines = ['--- SHEET: Sheet1 ---']
-    prev_row_text = None
-    row_count = 0
-    for _, row in df.iterrows():
-        vals = []
-        for v in row:
-            if v is None or (isinstance(v, float) and pd.isna(v)):
-                continue
-            s = str(v).strip()
-            if s and s.lower() != 'nan':
-                vals.append(s)
-        if len(vals) < 2:
-            continue
-        row_text = '|'.join(vals)
-        if row_text == prev_row_text:
-            continue
-        prev_row_text = row_text
-        lines.append(row_text)
-        row_count += 1
-        if row_count >= 3000:
-            lines.append('[truncated at 3000 rows]')
-            break
-
-    result = '\n'.join(lines)
-    print(f"  SLK extracted: {len(result)} chars")
-    return result
 
 
 def read_commission_file(file_path):
@@ -546,8 +575,17 @@ def clean_amount(val):
     """Convert any amount value to float."""
     if val is None:
         return 0.0
+    try:
+        import pandas as pd
+        if pd.isna(val):
+            return 0.0
+    except (TypeError, ImportError, ValueError):
+        pass
     if isinstance(val, (int, float)):
-        return float(val)
+        v = float(val)
+        if v != v:  # NaN
+            return 0.0
+        return v
     # Remove currency symbols and commas
     cleaned = str(val).strip()
     cleaned = cleaned.replace('$', '')
@@ -794,6 +832,29 @@ def validate_and_score(line_items):
 
     for item in line_items:
         item = dict(item)
+        is_voucher = str(
+            item.get('po_number') or ''
+        ).upper().startswith('VOUCHER-')
+
+        if is_voucher:
+            sale = clean_amount(item.get('sale_amount'))
+            rate = clean_amount(item.get('commission_rate'))
+            comm = clean_amount(item.get('commission_amount'))
+            if 0 < rate < 0.20:
+                rate = rate * 100
+            item['sale_amount'] = sale
+            item['commission_rate'] = rate
+            item['commission_amount'] = comm
+            date = item.get('invoice_date')
+            normalized_date = normalize_date(date)
+            if normalized_date:
+                item['invoice_date'] = normalized_date
+            item['confidence'] = 1.0
+            item['needs_review'] = False
+            item['validation_issues'] = []
+            validated.append(item)
+            continue
+
         issues = []
         confidence = 1.0
 
@@ -1035,11 +1096,10 @@ def group_by_po(validated_items):
         if item.get('has_commission_splits'):
             g['has_commission_splits'] = True
 
-        rebate_val = item.get('commission_rebate') or 0
-        if rebate_val:
-            g['commission_rebate'] = (
-                g.get('commission_rebate') or 0
-            ) + rebate_val
+        g['commission_rebate'] = (
+            (g.get('commission_rebate') or 0)
+            + clean_amount(item.get('commission_rebate'))
+        )
 
         inv = item.get('invoice_number')
         if inv and inv not in g['invoice_numbers']:
@@ -1511,7 +1571,7 @@ def extract_excel_with_template(
         date_col = mapping.get('invoice_date')
         sale_col = mapping.get('sale_amount')
         rate_col = mapping.get('commission_rate')
-        comm_col = mapping.get('commission_amount')
+        comm_spec = mapping.get('commission_amount')
 
         # Find columns that exist
         available = set(df.columns.astype(str))
@@ -1538,7 +1598,22 @@ def extract_excel_with_template(
         po_date_col = safe_get(mapping.get('po_date'))
         sale_col = safe_get(sale_col)
         rate_col = safe_get(rate_col)
-        comm_col = safe_get(comm_col)
+        comm_col = safe_get(comm_spec) if comm_spec else None
+        two_col_comm = None
+        if (
+            comm_spec
+            and not comm_col
+            and ' - ' in str(comm_spec)
+        ):
+            parts = str(comm_spec).split(' - ', 1)
+            ca = safe_get(parts[0].strip())
+            cb = safe_get(parts[1].strip())
+            if ca and cb:
+                two_col_comm = (ca, cb)
+                print(
+                    f"  Commission = '{ca}' minus '{cb}' "
+                    f"(template)"
+                )
 
         # Get split commission column mappings
         orig_col = safe_get(
@@ -1556,9 +1631,14 @@ def extract_excel_with_template(
         comm_credit_col = safe_get(
             mapping.get('comm_credit')
         )
+        bill_addr_col = safe_get(
+            mapping.get('bill_address')
+        )
+        if not bill_addr_col:
+            bill_addr_col = safe_get('BILL ADDRESS')
         mfr_lower = str(manufacturer or '').lower().strip()
 
-        if not comm_col:
+        if not comm_col and not two_col_comm:
             # Better fallback: find columns with numeric dollar-like values
             for col in df.columns:
                 col_str = str(col).lower()
@@ -1589,7 +1669,7 @@ def extract_excel_with_template(
                                 break
                 except Exception:
                     continue
-        if not comm_col:
+        if not comm_col and not two_col_comm:
             print(f"  No commission column found in sheet {sheet_name}")
             continue
 
@@ -1606,15 +1686,51 @@ def extract_excel_with_template(
             return False
 
         for _, row in df.iterrows():
-            comm_val = row.get(comm_col)
-            if comm_val is None or pd.isna(comm_val):
-                continue
+            def get_val(col):
+                if not col:
+                    return None
+                v = row.get(col)
+                if v is None:
+                    return None
+                try:
+                    if pd.isna(v):
+                        return None
+                except (TypeError, ValueError):
+                    pass
+                return v
 
-            comm = clean_amount(comm_val)
+            rebate_val = (
+                clean_amount(get_val(rebate_col))
+                if rebate_col else 0.0
+            )
+
+            if two_col_comm:
+                ca, cb = two_col_comm
+                va = row.get(ca)
+                vb = row.get(cb)
+                if (
+                    (va is None or pd.isna(va))
+                    and (vb is None or pd.isna(vb))
+                ):
+                    if rebate_val == 0:
+                        continue
+                    comm = 0.0
+                else:
+                    comm = clean_amount(va) - clean_amount(vb)
+            else:
+                comm_val = row.get(comm_col)
+                if comm_val is None or pd.isna(comm_val):
+                    comm = 0.0
+                else:
+                    comm = clean_amount(comm_val)
             star_credit_rows = (
                 mfr_lower == 'star' and comm_credit_col
             )
-            if comm == 0 and not star_credit_rows:
+            if (
+                comm == 0
+                and not star_credit_rows
+                and rebate_val == 0
+            ):
                 continue
 
             # Skip total/summary rows
@@ -1642,19 +1758,6 @@ def extract_excel_with_template(
             ):
                 continue
 
-            def get_val(col):
-                if not col:
-                    return None
-                v = row.get(col)
-                if v is None:
-                    return None
-                try:
-                    if pd.isna(v):
-                        return None
-                except (TypeError, ValueError):
-                    pass
-                return v
-
             raw_date = get_val(date_col)
             if _is_missing_date_val(raw_date) and po_date_col:
                 raw_date = get_val(po_date_col)
@@ -1673,20 +1776,38 @@ def extract_excel_with_template(
             po_str = str(get_val(po_col) or '').strip()
             inv_str = str(get_val(inv_col) or '').strip()
             po_source_auto = None
-            # If no PO but ORDER # / invoice number is present (e.g. Cambro
-            # distributor rows), use ORDER # as PO so rows are included in
-            # totals and grouping. Do not require manufacturer === Cambro
-            # (mapping may omit manufacturer on some uploads).
-            if not po_str and inv_str:
+
+            bill_name = str(
+                get_val(dealer_col) or ''
+            ).strip().upper()
+
+            voucher_code = None
+            if bill_name == 'VOUCHER':
+                voucher_code = str(
+                    get_val(bill_addr_col) or ''
+                ).strip() or 'VOUCHER'
+                po_str = (
+                    'VOUCHER-' + voucher_code
+                )[:30]
+                po_source_auto = 'voucher'
+            elif not po_str and inv_str:
+                # Cambro distributor rows: use ORDER # as PO
                 po_str = inv_str
                 po_source_auto = 'invoice_used_as_po'
 
-            record = {
-                'po_number': po_str or None,
-                'dealer_name': (
+            if bill_name == 'VOUCHER':
+                dealer_display = 'VOUCHER: ' + (
+                    voucher_code or 'VOUCHER'
+                )
+            else:
+                dealer_display = (
                     str(get_val(dealer_col)).strip()
                     if get_val(dealer_col) else None
-                ),
+                )
+
+            record = {
+                'po_number': po_str or None,
+                'dealer_name': dealer_display,
                 'invoice_number': inv_str or None,
                 'invoice_date': invoice_date,
                 'sale_amount': clean_amount(
@@ -1795,17 +1916,22 @@ def extract_excel_with_template(
                 ):
                     record['sale_amount'] = 0.0
 
-            # Skip rows that are voucher/accounting entries or summary
+            # Skip obvious summary/total rows in dealer name.
             dealer = str(
                 record.get('dealer_name') or ''
             ).upper()
             skip_dealers = [
-                'VOUCHER', 'REBATE', 'ADJUSTMENT',
                 'TOTAL', 'SUBTOTAL', 'GRAND TOTAL',
-                'SUMMARY', 'TRANSFER', 'TOTAL COMMISSION'
             ]
             if any(skip in dealer for skip in skip_dealers):
                 print(f'  Skipping summary row: dealer={dealer_val}')
+                continue
+
+            if bill_name == 'VOUCHER' and comm == 0:
+                print(
+                    f'  Skipping zero-commission VOUCHER row: '
+                    f'dealer={dealer_val}'
+                )
                 continue
 
             all_records.append(record)
@@ -2004,6 +2130,16 @@ def process_commission_file(
         print(f"  {grouped['total_pos']} POs, "
               f"{grouped['total_no_po']} without PO")
 
+        prepaid_groups = sum(
+            (g.get('commission_rebate') or 0)
+            for g in grouped['grouped'].values()
+        )
+        prepaid_no_po_grp = sum(
+            clean_amount(item.get('commission_rebate'))
+            for item in grouped['no_po_items']
+        )
+        prepaid_via_groups = prepaid_groups + prepaid_no_po_grp
+
         # Step 6: Summary (include no-PO items in total)
         po_total = sum(
             g['total_commission']
@@ -2029,7 +2165,36 @@ def process_commission_file(
             src = extraction.get('_source', '')
             if src in ('excel', 'csv') and no_po_total > 0.05 * po_total:
                 no_po_total = 0
-        total_commission = po_total + no_po_total
+        all_comm = po_total + no_po_total
+        # Prepaid: sum every line item (incl. negatives), not group totals —
+        # grouped rebate can drift vs file due to rounding or edge cases.
+        all_prepaid = sum(
+            clean_amount(item.get('commission_rebate'))
+            for item in validated
+        )
+
+        total_commission = all_comm - all_prepaid
+
+        print(
+            f"  PO + no-PO commission: ${all_comm:,.2f}"
+        )
+        print(
+            f"  Prepaid (group fields): "
+            f"${prepaid_via_groups:,.2f}"
+        )
+        print(
+            f"  Prepaid (line items):   "
+            f"${all_prepaid:,.2f}"
+        )
+        if abs(prepaid_via_groups - all_prepaid) > 0.02:
+            print(
+                f"  Prepaid gap (lines − groups): "
+                f"${all_prepaid - prepaid_via_groups:,.2f}"
+            )
+        print(
+            f"  Net (comm − line prepaid): "
+            f"${total_commission:,.2f}"
+        )
 
         summary = {
             'total_pos': grouped['total_pos'],
@@ -2042,6 +2207,12 @@ def process_commission_file(
             ),
             'total_commission': round(
                 total_commission, 2
+            ),
+            'prepaid_freight_total': round(
+                all_prepaid, 2
+            ),
+            'commission_gross_total': round(
+                all_comm, 2
             ),
             'manufacturer': extraction['manufacturer'],
             'period': extraction.get('period', '')
