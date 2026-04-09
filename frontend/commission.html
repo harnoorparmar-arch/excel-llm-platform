@@ -211,6 +211,13 @@
               <span id="net-ra-impact" class="font-semibold">$0.00</span>
             </div>
           </div>
+          <div class="mt-3 flex flex-wrap items-center justify-between gap-2">
+            <p class="text-xs text-gray-500 max-w-xl">When finished, click Apply to update the Total Commission summary card (file total − rebates + adjustments).</p>
+            <button type="button" id="apply-ra-to-summary-btn"
+                    class="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primaryHover shrink-0">
+              Apply to summary
+            </button>
+          </div>
         </div>
 
       </div>
@@ -271,6 +278,8 @@
     let batchApprovedKeys = new Set();
     let rebatesAndAdjustments = [];
     let raIdCounter = 0;
+    /** API/file total commission (summary) before manual RA; used by Apply to summary. */
+    let originalSummaryCommission = 0;
 
     // --- Upload Zone ---
     const dropZone = document.getElementById('dropZone');
@@ -516,23 +525,22 @@
       </div>
     </div>`;
 
-      function syncField(input) {
-        const id = parseInt(input.dataset.id, 10);
-        const field = input.dataset.field;
-        const ent = rebatesAndAdjustments.find(e => e.id === id);
-        if (!ent) return;
-        if (input.type === 'number') {
-          ent[field] = input.value === '' ? 0 : parseFloat(input.value);
-          if (Number.isNaN(ent[field])) ent[field] = 0;
-        } else {
-          ent[field] = input.value;
-        }
-        updateRATotal();
-      }
-
       div.querySelectorAll('.ra-field').forEach(input => {
-        input.addEventListener('change', () => syncField(input));
-        input.addEventListener('input', () => syncField(input));
+        const handler = () => {
+          const id = parseInt(input.dataset.id, 10);
+          const field = input.dataset.field;
+          const ent = rebatesAndAdjustments.find(e => e.id === id);
+          if (!ent) return;
+          if (input.type === 'number') {
+            ent[field] = input.value === '' ? 0 : (parseFloat(input.value) || 0);
+            if (Number.isNaN(ent[field])) ent[field] = 0;
+          } else {
+            ent[field] = input.value;
+          }
+          updateRATotal();
+        };
+        input.addEventListener('change', handler);
+        input.addEventListener('input', handler);
       });
 
       div.querySelector('.ra-delete').addEventListener('click', () => {
@@ -571,13 +579,39 @@
       if (raSec) raSec.style.display = 'block';
     }
 
+    function raPaidCommission(e) {
+      const v = e.paid_commission;
+      if (v === '' || v === null || v === undefined) return 0;
+      const n = parseFloat(v);
+      return Number.isNaN(n) ? 0 : n;
+    }
+
+    function applyRebatesToSummary() {
+      if (!resultData || !resultData.summary) return;
+      const base = originalSummaryCommission;
+      const totalRebates = rebatesAndAdjustments
+        .filter(e => e.type === 'rebate')
+        .reduce((sum, e) => sum + raPaidCommission(e), 0);
+      const totalAdjustments = rebatesAndAdjustments
+        .filter(e => e.type === 'adjustment')
+        .reduce((sum, e) => sum + raPaidCommission(e), 0);
+      const net = base - totalRebates + totalAdjustments;
+      const summaryCommEl = document.getElementById('summary-total-commission');
+      if (summaryCommEl) {
+        summaryCommEl.textContent = '$' + net.toLocaleString('en-US', {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2
+        });
+      }
+    }
+
     function updateRATotal() {
       const totalRebates = rebatesAndAdjustments
         .filter(e => e.type === 'rebate')
-        .reduce((sum, e) => sum + (e.paid_commission || 0), 0);
+        .reduce((sum, e) => sum + raPaidCommission(e), 0);
       const totalAdjustments = rebatesAndAdjustments
         .filter(e => e.type === 'adjustment')
-        .reduce((sum, e) => sum + (e.paid_commission || 0), 0);
+        .reduce((sum, e) => sum + raPaidCommission(e), 0);
       const netImpact = totalAdjustments - totalRebates;
 
       const trEl = document.getElementById('total-rebates');
@@ -781,6 +815,10 @@
       addRebateOrAdjustment('adjustment');
     });
 
+    document.getElementById('apply-ra-to-summary-btn')?.addEventListener('click', () => {
+      applyRebatesToSummary();
+    });
+
     // --- Render ---
     function renderAll() {
       if (!resultData) return;
@@ -800,9 +838,10 @@
       document.getElementById('card-manufacturer').textContent = s.manufacturer || '—';
       document.getElementById('card-period').textContent = s.period || '—';
       const fileTotal = s.total_commission != null ? s.total_commission : 0;
+      originalSummaryCommission = Number(fileTotal) || 0;
       const summaryCommEl = document.getElementById('summary-total-commission');
       if (summaryCommEl) {
-        summaryCommEl.textContent = '$' + fileTotal.toLocaleString('en-US', {
+        summaryCommEl.textContent = '$' + originalSummaryCommission.toLocaleString('en-US', {
           minimumFractionDigits: 2,
           maximumFractionDigits: 2
         });
@@ -1392,10 +1431,10 @@
 
       const totalRebatesRA = rebatesAndAdjustments
         .filter(e => e.type === 'rebate')
-        .reduce((sum, e) => sum + (e.paid_commission || 0), 0);
+        .reduce((sum, e) => sum + raPaidCommission(e), 0);
       const totalAdjustmentsRA = rebatesAndAdjustments
         .filter(e => e.type === 'adjustment')
-        .reduce((sum, e) => sum + (e.paid_commission || 0), 0);
+        .reduce((sum, e) => sum + raPaidCommission(e), 0);
 
       const approvedRowCount = approvedPOs.length + approvedNoPOItems.length;
       const totalCommission = poTotal + noPOTotal + totalAdjustmentsRA - totalRebatesRA;
@@ -1415,29 +1454,6 @@
             minimumFractionDigits: 2,
             maximumFractionDigits: 2
           }) + ' approved';
-      }
-
-      const summaryCommEl = document.getElementById('summary-total-commission');
-      if (summaryCommEl) {
-        const hasApprovedOrRA =
-          approvedRowCount > 0 || rebatesAndAdjustments.length > 0;
-        if (hasApprovedOrRA) {
-          summaryCommEl.textContent =
-            '$' + totalCommission.toLocaleString('en-US', {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2
-            });
-        } else {
-          const fileTotal =
-            resultData.summary && resultData.summary.total_commission != null
-              ? resultData.summary.total_commission
-              : 0;
-          summaryCommEl.textContent =
-            '$' + Number(fileTotal).toLocaleString('en-US', {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2
-            });
-        }
       }
 
       const exportCsvBtn = document.getElementById('export-csv-btn');
