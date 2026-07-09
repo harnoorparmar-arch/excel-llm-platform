@@ -29,6 +29,7 @@ def read_pdf(file_path):
 
 
 def read_excel(file_path):
+    wb = None
     try:
         import openpyxl
         wb = openpyxl.load_workbook(
@@ -115,6 +116,9 @@ def read_excel(file_path):
             raise ValueError(
                 f"Excel read error: {e} / {e2}"
             )
+    finally:
+        if wb is not None:
+            wb.close()
 
 
 def read_txt(file_path):
@@ -126,6 +130,46 @@ def read_txt(file_path):
             return f.read()
     except Exception as e:
         raise ValueError(f"TXT read error: {e}")
+
+
+def read_csv_file(file_path, sep=','):
+    encodings = [
+        'utf-8',
+        'latin-1',
+        'windows-1252',
+        'cp1252',
+        'iso-8859-1',
+        'utf-8-sig',
+    ]
+    import pandas as pd
+    for encoding in encodings:
+        try:
+            df = pd.read_csv(
+                file_path,
+                sep=sep,
+                encoding=encoding,
+                on_bad_lines='skip',
+            )
+            print(f"  CSV read with encoding: {encoding}")
+            return df
+        except UnicodeDecodeError:
+            continue
+        except Exception:
+            continue
+
+    try:
+        df = pd.read_csv(
+            file_path,
+            sep=sep,
+            encoding='latin-1',
+            on_bad_lines='skip',
+            encoding_errors='replace',
+        )
+        print("  CSV read with latin-1 + replace")
+        return df
+    except Exception as e:
+        print(f"  CSV read error: {e}")
+        return None
 
 
 def _parse_slk_cells(file_path):
@@ -367,6 +411,11 @@ IMPORTANT RULES:
 - Dates MUST be YYYY-MM-DD format
 - Amounts MUST be numbers not strings
 - Negative amounts are credits — keep them negative
+- IMPORTANT: Negative commission amounts may use accounting notation:
+  ($5.05) means -$5.05
+  ($40.40) means -$40.40
+  Always extract these as NEGATIVE numbers, never positive.
+  These represent adjustments, credits, or reversals that REDUCE total commission.
 - commission_rate should be a number like 5.0 not 0.05
 
 Return ONLY this JSON structure, no markdown:
@@ -586,17 +635,24 @@ def clean_amount(val):
         if v != v:  # NaN
             return 0.0
         return v
-    # Remove currency symbols and commas
-    cleaned = str(val).strip()
-    cleaned = cleaned.replace('$', '')
+    # Accounting notation: ($5.05) means negative 5.05
+    raw = str(val).strip()
+    is_negative = raw.startswith('(') and raw.endswith(')')
+
+    # Remove currency symbols and formatting
+    cleaned = raw.replace('$', '')
     cleaned = cleaned.replace(',', '')
-    cleaned = cleaned.replace('(', '-')
+    cleaned = cleaned.replace('(', '')
     cleaned = cleaned.replace(')', '')
+    cleaned = cleaned.replace(' ', '')
     cleaned = cleaned.strip()
     if not cleaned or cleaned == '-':
         return 0.0
     try:
-        return float(cleaned)
+        amount = float(cleaned)
+        if is_negative:
+            amount = -abs(amount)
+        return amount
     except ValueError:
         return 0.0
 
@@ -818,6 +874,10 @@ SKIP_MATH_VALIDATION = {
     'gabriel grp',
     'gabriel group',
     'blodgett',
+    'dormont',
+    'watts',
+    'turbochef',
+    'turbo chef',
 }
 
 
@@ -1396,6 +1456,7 @@ def _load_slk_sheets_for_template(file_path, mapping):
     """
     import pandas as pd
 
+    xl = None
     try:
         xl = pd.ExcelFile(file_path, engine='xlrd')
         primary = (mapping.get('primary_sheet') or '').strip()
@@ -1410,6 +1471,9 @@ def _load_slk_sheets_for_template(file_path, mapping):
             return out
     except Exception as e:
         print(f"  SLK via xlrd/ExcelFile: {e}")
+    finally:
+        if xl is not None:
+            xl.close()
 
     df = load_slk_dataframe(file_path)
     if df is None or df.empty:
@@ -1431,7 +1495,12 @@ def extract_excel_with_template(
     import pandas as pd
     from pathlib import Path
 
-    manufacturer = mapping.get('manufacturer', '')
+    manufacturer = mapping.get('manufacturer', '') or ''
+    manufacturer = re.sub(
+        r'\s*\(.*?\)\s*$',
+        '',
+        manufacturer
+    ).strip()
     period = mapping.get('period', '')
     skip_pattern = (
         mapping.get('skip_rows_where', '') or ''
@@ -1449,10 +1518,8 @@ def extract_excel_with_template(
 
     if ext in ['.csv', '.tsv']:
         sep = '\t' if ext == '.tsv' else ','
-        try:
-            df = pd.read_csv(file_path, sep=sep)
-        except Exception as e:
-            print(f"  CSV read error: {e}")
+        df = read_csv_file(file_path, sep=sep)
+        if df is None:
             return []
         if df.empty:
             return []
@@ -1486,66 +1553,71 @@ def extract_excel_with_template(
             print("  SLK: no data after header detection")
             return []
     else:
-        xl = pd.ExcelFile(file_path)
+        xl = None
+        try:
+            xl = pd.ExcelFile(file_path)
 
-        # Determine which sheets to process
-        primary_sheet = mapping.get('primary_sheet')
-        skip_sheets = mapping.get('skip_sheets', []) or []
+            # Determine which sheets to process
+            primary_sheet = mapping.get('primary_sheet')
+            skip_sheets = mapping.get('skip_sheets', []) or []
 
-        # If filename has period (e.g. February 2026), prefer sheet matching it
-        # (Star uses tabs like 'Feb 2026' while the filename says 'February 2026')
-        filename_period = extract_period_from_filename(file_name)
-        if filename_period:
-            resolved = match_sheet_to_filename_period(
-                xl.sheet_names, filename_period
-            )
-            if resolved:
-                primary_sheet = resolved
-                print(
-                    f"  Using sheet '{resolved}' "
-                    f"(matches filename period)"
+            # If filename has period (e.g. February 2026), prefer sheet matching it
+            # (Star uses tabs like 'Feb 2026' while the filename says 'February 2026')
+            filename_period = extract_period_from_filename(file_name)
+            if filename_period:
+                resolved = match_sheet_to_filename_period(
+                    xl.sheet_names, filename_period
                 )
+                if resolved:
+                    primary_sheet = resolved
+                    print(
+                        f"  Using sheet '{resolved}' "
+                        f"(matches filename period)"
+                    )
 
-        # Normalize for comparison
-        skip_lower = [s.lower().strip() for s in skip_sheets if s]
+            # Normalize for comparison
+            skip_lower = [s.lower().strip() for s in skip_sheets if s]
 
-        sheets_to_process = []
-        for sheet_name in xl.sheet_names:
-            if sheet_name.lower() in skip_lower:
-                print(f"  Skipping sheet: {sheet_name} "
-                      f"(in skip_sheets)")
-                continue
-            if primary_sheet and sheet_name.lower() != primary_sheet.lower().strip():
-                print(f"  Skipping sheet: {sheet_name} "
-                      f"(not primary sheet)")
-                continue
-            sheets_to_process.append(sheet_name)
+            sheets_to_process = []
+            for sheet_name in xl.sheet_names:
+                if sheet_name.lower() in skip_lower:
+                    print(f"  Skipping sheet: {sheet_name} "
+                          f"(in skip_sheets)")
+                    continue
+                if primary_sheet and sheet_name.lower() != primary_sheet.lower().strip():
+                    print(f"  Skipping sheet: {sheet_name} "
+                          f"(not primary sheet)")
+                    continue
+                sheets_to_process.append(sheet_name)
 
-        if not sheets_to_process:
-            print("  No primary sheet found - "
-                  "processing all sheets")
-            sheets_to_process = xl.sheet_names
+            if not sheets_to_process:
+                print("  No primary sheet found - "
+                      "processing all sheets")
+                sheets_to_process = xl.sheet_names
 
-        print(f"  Processing sheets: {sheets_to_process}")
+            print(f"  Processing sheets: {sheets_to_process}")
 
-        sheets_data = []
-        mapped_cols = [
-            mapping.get('commission_amount'),
-            mapping.get('po_number'),
-            mapping.get('dealer_name'),
-            mapping.get('comm_credit'),
-            mapping.get('invoice_date'),
-            mapping.get('po_date'),
-        ]
-        for sn in sheets_to_process:
-            try:
-                df = _parse_sheet_with_header_detection(
-                    xl, sn, mapped_cols
-                )
-                if df is not None and not df.empty:
-                    sheets_data.append({'name': sn, 'df': df})
-            except Exception as e:
-                print(f"  Sheet {sn} error: {e}")
+            sheets_data = []
+            mapped_cols = [
+                mapping.get('commission_amount'),
+                mapping.get('po_number'),
+                mapping.get('dealer_name'),
+                mapping.get('comm_credit'),
+                mapping.get('invoice_date'),
+                mapping.get('po_date'),
+            ]
+            for sn in sheets_to_process:
+                try:
+                    df = _parse_sheet_with_header_detection(
+                        xl, sn, mapped_cols
+                    )
+                    if df is not None and not df.empty:
+                        sheets_data.append({'name': sn, 'df': df})
+                except Exception as e:
+                    print(f"  Sheet {sn} error: {e}")
+        finally:
+            if xl is not None:
+                xl.close()
 
     for item in sheets_data:
         sheet_name = item['name']
@@ -1758,20 +1830,52 @@ def extract_excel_with_template(
             ):
                 continue
 
-            raw_date = get_val(date_col)
-            if _is_missing_date_val(raw_date) and po_date_col:
-                raw_date = get_val(po_date_col)
+            date_val = get_val(date_col)
 
-            invoice_date = None
-            if not _is_missing_date_val(raw_date):
-                if hasattr(raw_date, 'strftime'):
-                    invoice_date = raw_date.strftime(
-                        '%Y-%m-%d'
+            if (
+                _is_missing_date_val(date_val)
+                and date_col
+                and date_col in df.columns
+            ):
+                try:
+                    col_has_values = (
+                        df[date_col].dropna().shape[0] > 0
                     )
-                else:
-                    invoice_date = normalize_date(
-                        raw_date
-                    )
+                except Exception:
+                    col_has_values = True
+
+                if not col_has_values:
+                    unnamed_cols = [
+                        c for c in df.columns
+                        if str(c).startswith('Unnamed')
+                    ]
+                    other_cols = [
+                        c for c in df.columns
+                        if c not in unnamed_cols
+                    ]
+                    for col in unnamed_cols + other_cols:
+                        sample = df[col].dropna()
+                        if sample.empty:
+                            continue
+                        test_val = str(
+                            sample.iloc[0]
+                        ).strip()
+                        normalized = normalize_date(test_val)
+                        if normalized:
+                            val = row.get(col)
+                            if val:
+                                date_val = val
+                                print(
+                                    f'  Date fallback: '
+                                    f'col "{col}" → '
+                                    f'{val}'
+                                )
+                                break
+
+            if _is_missing_date_val(date_val) and po_date_col:
+                date_val = get_val(po_date_col)
+
+            invoice_date = normalize_date(date_val)
 
             po_str = str(get_val(po_col) or '').strip()
             inv_str = str(get_val(inv_col) or '').strip()
@@ -2026,9 +2130,11 @@ def process_commission_file(
             )
 
             extraction = {
-                'manufacturer': mapping.get(
-                    'manufacturer'
-                ) or manufacturer,
+                'manufacturer': re.sub(
+                    r'\s*\(.*?\)\s*$',
+                    '',
+                    mapping.get('manufacturer') or manufacturer
+                ).strip(),
                 'period': mapping.get('period', ''),
                 'currency': 'USD',
                 'line_items': line_items,
@@ -2079,9 +2185,11 @@ def process_commission_file(
             )
 
             extraction = {
-                'manufacturer': mapping.get(
-                    'manufacturer'
-                ) or manufacturer,
+                'manufacturer': re.sub(
+                    r'\s*\(.*?\)\s*$',
+                    '',
+                    mapping.get('manufacturer') or manufacturer
+                ).strip(),
                 'period': mapping.get('period', ''),
                 'currency': 'USD',
                 'line_items': line_items,

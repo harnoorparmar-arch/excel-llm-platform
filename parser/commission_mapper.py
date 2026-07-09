@@ -393,6 +393,9 @@ def map_columns_with_ai(file_path, file_name):
     text = text.strip().rstrip('`').strip()
 
     mapping = json.loads(text)
+    mfr = mapping.get('manufacturer', '') or ''
+    mfr = re.sub(r'\s*\(.*?\)\s*$', '', mfr).strip()
+    mapping['manufacturer'] = mfr
     print(f"  Column mapping result: {mapping}")
     return mapping
 

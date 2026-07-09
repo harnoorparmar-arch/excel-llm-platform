@@ -161,10 +161,16 @@
 
         <!-- SECTION 4 - No PO Items -->
         <div id="no-po-section" style="display:none" class="mt-6 mb-8">
-          <h3 class="text-lg font-semibold text-gray-800 mb-4">
-            ⚠️ Items without PO Number
-            <span id="no-po-count" class="ml-2 px-2 py-0.5 text-sm bg-amber-100 text-amber-700 rounded-full"></span>
-          </h3>
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-semibold text-gray-800">
+              <span id="no-po-title">⚠️ Items without PO Number</span>
+              <span id="no-po-count" class="ml-2 px-2 py-0.5 text-sm bg-amber-100 text-amber-700 rounded-full"></span>
+            </h3>
+            <button id="use-all-invoice-as-po"
+                    class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+              ✅ Use Invoice # as PO for All
+            </button>
+          </div>
           <p class="text-sm text-gray-500 mb-4">
             These items have no PO number. Review each one and either use the invoice number as PO, enter a PO manually, or skip.
           </p>
@@ -639,6 +645,68 @@
       return group.po_normalized || group.po_number || '';
     }
 
+    function addNoPoConvertedGroup(item, poValue, poSource) {
+      if (!resultData || !Array.isArray(resultData.po_groups)) return;
+      const po = String(poValue || '').trim();
+      if (!po) return;
+
+      const li = { ...item, po_number: po, po_source: poSource };
+      const newGroup = {
+        po_number: po,
+        po_normalized: po,
+        po_source: poSource,
+        dealer_name: item.dealer_name,
+        total_commission: item.commission_amount || 0,
+        total_sale_amount: item.sale_amount || 0,
+        invoice_numbers: [item.invoice_number].filter(Boolean),
+        invoice_dates: [item.invoice_date].filter(Boolean),
+        line_item_count: 1,
+        line_items: [li],
+        needs_review: false,
+        min_confidence: 1.0,
+        all_issues: [],
+        has_commission_splits: false,
+        commission_origination: null,
+        commission_specification: null,
+        commission_destination: null,
+        status: 'approved',
+        source_file: item.source_file || '',
+        from_no_po: true
+      };
+
+      resultData.po_groups.push(newGroup);
+      poStates[getGroupKey(newGroup)] = 'approved';
+    }
+
+    function updateNoPOCount() {
+      const remaining = noPOItems.filter(item => !item.po_number).length;
+      const countEl = document.getElementById('no-po-count');
+      const titleEl = document.getElementById('no-po-title');
+      const bulkBtn = document.getElementById('use-all-invoice-as-po');
+
+      if (countEl) {
+        countEl.textContent = remaining;
+        countEl.classList.toggle('hidden', remaining === 0);
+      }
+      if (titleEl) {
+        titleEl.textContent = remaining === 0
+          ? '✅ All items assigned PO numbers'
+          : '⚠️ Items without PO Number';
+      }
+
+      const section = document.getElementById('no-po-section');
+      if (!section) return;
+
+      section.style.opacity = remaining === 0 ? '0.5' : '';
+      if (bulkBtn) {
+        if (remaining === 0) {
+          bulkBtn.classList.add('hidden');
+        } else {
+          bulkBtn.classList.remove('hidden');
+        }
+      }
+    }
+
     function getShortFileName(filename) {
       if (!filename) return '';
       let name = filename.replace(/\.(pdf|xlsx|xls|txt|csv)$/i, '');
@@ -819,6 +887,38 @@
       applyRebatesToSummary();
     });
 
+    document.getElementById('use-all-invoice-as-po')?.addEventListener('click', () => {
+      const withInvoice = noPOItems.filter((item) => (
+        item.invoice_number &&
+        !item.po_number
+      ));
+
+      if (withInvoice.length === 0) {
+        alert('No items with invoice numbers to assign');
+        return;
+      }
+
+      const confirmed = confirm(
+        `Use invoice number as PO for ${withInvoice.length} item(s)?\n\n` +
+        `Items without invoice numbers will be skipped.`
+      );
+
+      if (!confirmed) return;
+
+      noPOItems.forEach((item) => {
+        if (!item.invoice_number || item.po_number) return;
+        item.po_number = item.invoice_number;
+        item.po_source = 'invoice_used_as_po';
+        addNoPoConvertedGroup(item, item.invoice_number, 'invoice_used_as_po');
+      });
+
+      renderTable();
+      renderNoPo();
+      updateNoPOCount();
+
+      updateBottomBar();
+    });
+
     // --- Render ---
     function renderAll() {
       if (!resultData) return;
@@ -959,6 +1059,10 @@
           sourceBadge = `<span class="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded ml-1">${escapeHtml(shortName || group.source_file)}</span>`;
         }
 
+        const invPoBadge = group.from_no_po
+          ? `<span class="ml-1 text-xs bg-blue-100 text-blue-600 px-1 rounded" title="PO assigned from invoice">inv→PO</span>`
+          : '';
+
         const tr = document.createElement('tr');
         const voucherRowClass = isVoucher
           ? 'bg-gray-50 border-b border-gray-100'
@@ -1041,7 +1145,7 @@
 
         tr.innerHTML = `
           <td class="py-2 px-2 text-gray-500">${isExpanded ? '▼' : '▶'}</td>
-          <td class="py-3 px-4 font-medium text-gray-800">${escapeHtml(disp.po_number || '—')}${sourceBadge}</td>
+          <td class="py-3 px-4 font-medium text-gray-800">${escapeHtml(disp.po_number || '—')}${invPoBadge}${sourceBadge}</td>
           <td class="py-3 px-4 text-gray-700">${escapeHtml(disp.dealer_name || '—')}</td>
           <td class="py-3 px-4 text-right commission-amount">$${(disp.total_commission != null ? disp.total_commission : 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
           <td class="py-3 px-4 text-center text-gray-600">${group.line_item_count != null ? group.line_item_count : 0}</td>
@@ -1337,15 +1441,32 @@
 
     function renderNoPOItems(items) {
       const container = document.getElementById('no-po-items-container');
-      const countEl = document.getElementById('no-po-count');
       if (!container) return;
 
-      if (countEl) countEl.textContent = items.length;
+      const remaining = items.filter(item => !item.po_number).length;
+      updateNoPOCount();
+
       container.innerHTML = '';
+      const bulkBtn = document.getElementById('use-all-invoice-as-po');
+      if (bulkBtn) {
+        const assignable = items.some(it => it.invoice_number && !it.po_number);
+        if (!assignable) {
+          bulkBtn.textContent = '✅ All Assigned';
+          bulkBtn.disabled = true;
+          bulkBtn.classList.remove('bg-blue-600', 'hover:bg-blue-700');
+          bulkBtn.classList.add('bg-gray-300', 'cursor-not-allowed');
+        } else {
+          bulkBtn.textContent = '✅ Use Invoice # as PO for All';
+          bulkBtn.disabled = false;
+          bulkBtn.classList.add('bg-blue-600', 'hover:bg-blue-700');
+          bulkBtn.classList.remove('bg-gray-300', 'cursor-not-allowed');
+        }
+      }
 
       items.forEach((item, idx) => {
+        if (item.po_number) return;
         const div = document.createElement('div');
-        div.className = 'border border-amber-200 bg-amber-50 rounded-lg p-4 mb-3';
+        div.className = 'no-po-item border border-amber-200 bg-amber-50 rounded-lg p-4 mb-3';
         div.dataset.idx = idx;
 
         div.innerHTML = `
@@ -1379,8 +1500,10 @@
             const invoice = useBtn.dataset.invoice;
             noPOItems[idx].po_number = invoice;
             noPOItems[idx].po_source = 'invoice_used_as_po';
-            approvedNoPOItems.push(noPOItems[idx]);
-            div.innerHTML = `<div class="flex items-center gap-2 text-green-700"><span>✅</span><span class="font-medium">${escapeHtml(item.dealer_name || '')}</span><span class="text-sm">PO set to invoice <span class="font-mono font-medium">${escapeHtml(invoice)}</span></span><span class="text-sm font-medium text-green-600">$${(item.commission_amount || 0).toFixed(2)}</span></div>`;
+            addNoPoConvertedGroup(noPOItems[idx], invoice, 'invoice_used_as_po');
+            renderTable();
+            renderNoPo();
+            updateNoPOCount();
             updateBottomBar();
           });
         }
@@ -1394,8 +1517,10 @@
           if (!po) return;
           noPOItems[idx].po_number = po;
           noPOItems[idx].po_source = 'manually_entered';
-          approvedNoPOItems.push(noPOItems[idx]);
-          div.innerHTML = `<div class="flex items-center gap-2 text-green-700"><span>✅</span><span class="font-medium">${escapeHtml(item.dealer_name || '')}</span><span class="text-sm">PO manually set to <span class="font-mono font-medium">${escapeHtml(po)}</span></span><span class="text-sm font-medium text-green-600">$${(item.commission_amount || 0).toFixed(2)}</span></div>`;
+          addNoPoConvertedGroup(noPOItems[idx], po, 'manually_entered');
+          renderTable();
+          renderNoPo();
+          updateNoPOCount();
           updateBottomBar();
         });
 
@@ -1417,6 +1542,10 @@
         g => poStates[getGroupKey(g)] === 'approved'
       );
 
+      const approvedPoKeys = new Set(
+        approvedPOs.map(g => String(getGroupKey(g) || '').trim().toUpperCase()).filter(Boolean)
+      );
+
       // Sum commission from approved PO groups
       const poTotal = approvedPOs.reduce(
         (sum, g) => sum + (getGroupDisplay(g).total_commission != null ? getGroupDisplay(g).total_commission : 0),
@@ -1424,7 +1553,11 @@
       );
 
       // Sum commission from approved no-PO items (Use Invoice as PO, Enter manually)
-      const noPOTotal = approvedNoPOItems.reduce(
+      const orphanApprovedNoPO = approvedNoPOItems.filter(item => {
+        const k = String(item.po_number || '').trim().toUpperCase();
+        return k && !approvedPoKeys.has(k);
+      });
+      const noPOTotal = orphanApprovedNoPO.reduce(
         (sum, item) => sum + (item.commission_amount != null ? item.commission_amount : (item.total_commission != null ? item.total_commission : 0)),
         0
       );
@@ -1436,7 +1569,7 @@
         .filter(e => e.type === 'adjustment')
         .reduce((sum, e) => sum + raPaidCommission(e), 0);
 
-      const approvedRowCount = approvedPOs.length + approvedNoPOItems.length;
+      const approvedRowCount = approvedPOs.length + orphanApprovedNoPO.length;
       const totalCommission = poTotal + noPOTotal + totalAdjustmentsRA - totalRebatesRA;
 
       const skipped = Object.values(poStates).filter(s => s === 'skipped').length;
@@ -1537,7 +1670,14 @@
       const approved = poGroups.filter(function (g) {
         return poStates[getGroupKey(g)] === 'approved';
       });
-      if (approved.length === 0 && approvedNoPOItems.length === 0 && rebatesAndAdjustments.length === 0) {
+      const approvedPoKeys = new Set(
+        approved.map(g => String(getGroupKey(g) || '').trim().toUpperCase()).filter(Boolean)
+      );
+      const orphanNoPo = approvedNoPOItems.filter(item => {
+        const k = String(item.po_number || '').trim().toUpperCase();
+        return k && !approvedPoKeys.has(k);
+      });
+      if (approved.length === 0 && orphanNoPo.length === 0 && rebatesAndAdjustments.length === 0) {
         alert('No approved items or rebates/adjustments to export');
         return;
       }
@@ -1557,10 +1697,10 @@
           commission_specification: g.commission_specification,
           commission_destination: g.commission_destination,
           source_file: g.source_file,
-          po_source: 'extracted'
+          po_source: g.po_source || 'extracted'
         };
       });
-      const nopoAsPos = approvedNoPOItems.map(function (item) {
+      const nopoAsPos = orphanNoPo.map(function (item) {
         return {
           po_number: item.po_number,
           po_source: item.po_source,
@@ -1611,11 +1751,18 @@
     document.getElementById('file-salesforce-btn').addEventListener('click', function () {
       const approved = resultData.po_groups.filter(g => poStates[getGroupKey(g)] === 'approved');
       const poTotal = approved.reduce((sum, g) => sum + (getGroupDisplay(g).total_commission != null ? getGroupDisplay(g).total_commission : 0), 0);
-      const nopoTotal = approvedNoPOItems.reduce((sum, i) => sum + (i.commission_amount != null ? i.commission_amount : 0), 0);
+      const approvedPoKeys = new Set(
+        approved.map(g => String(getGroupKey(g) || '').trim().toUpperCase()).filter(Boolean)
+      );
+      const orphanNoPo = approvedNoPOItems.filter(i => {
+        const k = String(i.po_number || '').trim().toUpperCase();
+        return k && !approvedPoKeys.has(k);
+      });
+      const nopoTotal = orphanNoPo.reduce((sum, i) => sum + (i.commission_amount != null ? i.commission_amount : 0), 0);
       const raReb = rebatesAndAdjustments.filter(e => e.type === 'rebate').reduce((s, e) => s + (e.paid_commission || 0), 0);
       const raAdj = rebatesAndAdjustments.filter(e => e.type === 'adjustment').reduce((s, e) => s + (e.paid_commission || 0), 0);
       const total = poTotal + nopoTotal + raAdj - raReb;
-      const count = approved.length + approvedNoPOItems.length;
+      const count = approved.length + orphanNoPo.length;
       const raLine = rebatesAndAdjustments.length
         ? ` (${rebatesAndAdjustments.length} rebate/adj. line${rebatesAndAdjustments.length === 1 ? '' : 's'})`
         : '';
@@ -1643,7 +1790,14 @@
         if (g.source_files && g.source_files.length) out.source_files = g.source_files;
         return out;
       });
-      const nopoAsPos = approvedNoPOItems.map(item => ({
+      const approvedPoKeys = new Set(
+        approved.map(g => String(getGroupKey(g) || '').trim().toUpperCase()).filter(Boolean)
+      );
+      const orphanNoPo = approvedNoPOItems.filter(item => {
+        const k = String(item.po_number || '').trim().toUpperCase();
+        return k && !approvedPoKeys.has(k);
+      });
+      const nopoAsPos = orphanNoPo.map(item => ({
         po_number: item.po_number,
         po_source: item.po_source,
         dealer_name: item.dealer_name,

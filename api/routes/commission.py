@@ -3,6 +3,8 @@ from fastapi.responses import JSONResponse, StreamingResponse
 import os
 import shutil
 import uuid
+import time
+import gc
 from datetime import datetime
 from pathlib import Path
 
@@ -25,6 +27,18 @@ ALLOWED_COMMISSION_EXTENSIONS = {
     ".txt",
     ".slk",
 }
+
+
+def safe_remove(path, retries=5, delay=0.5):
+    for attempt in range(retries):
+        try:
+            os.remove(path)
+            return
+        except PermissionError:
+            if attempt < retries - 1:
+                time.sleep(delay)
+            else:
+                print(f"Warning: Could not delete temp file: {path}")
 
 
 @router.post("/upload")
@@ -140,7 +154,9 @@ async def upload_commission_file(
     finally:
         # Clean up temp file
         if save_path.exists():
-            os.remove(save_path)
+            gc.collect()
+            time.sleep(0.1)
+            safe_remove(save_path)
 
 
 @router.post("/export-csv")
