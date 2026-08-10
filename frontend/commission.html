@@ -43,7 +43,7 @@
       </a>
     </nav>
     <div class="mt-auto p-4">
-      <p class="text-xs text-gray-400">Upload commission reports. Review and approve before filing to Salesforce.</p>
+      <p class="text-xs text-gray-400">Upload commission reports. Review and approve before exporting.</p>
     </div>
   </aside>
 
@@ -199,7 +199,7 @@
           </div>
           <p class="text-sm text-gray-500 mb-4">
             Rebates reduce total commission. Adjustments increase total commission.
-            Both are included in the CSV export and Salesforce filing.
+            Both are included in the CSV export.
           </p>
           <div id="rebate-adjustment-list" class="space-y-3"></div>
           <div id="ra-summary"
@@ -249,27 +249,12 @@
             <button id="export-csv-btn" disabled class="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed">
               📥 Export CSV
             </button>
-            <button id="file-salesforce-btn" disabled class="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primaryHover disabled:bg-gray-300 disabled:cursor-not-allowed">
-              ☁️ File to Salesforce
-            </button>
           </div>
         </div>
       </div>
       <div id="action-bar-spacer" class="hidden h-20"></div>
     </div>
   </main>
-
-  <!-- File to Salesforce Modal -->
-  <div id="file-modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
-    <div class="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
-      <h3 class="text-lg font-semibold text-gray-800 mb-2">File to Salesforce</h3>
-      <p id="file-modal-text" class="text-gray-600 text-sm mb-6">Filing X POs totaling $Y to Salesforce</p>
-      <div class="flex gap-3 justify-end">
-        <button id="file-modal-cancel" class="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50">Cancel</button>
-        <button id="file-modal-confirm" class="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primaryHover">Confirm</button>
-      </div>
-    </div>
-  </div>
 
   <script>
     const API_BASE = '';
@@ -1590,10 +1575,8 @@
       }
 
       const exportCsvBtn = document.getElementById('export-csv-btn');
-      const fileSalesforceBtn = document.getElementById('file-salesforce-btn');
       const canExport = approvedRowCount > 0 || rebatesAndAdjustments.length > 0;
       if (exportCsvBtn) exportCsvBtn.disabled = !canExport;
-      if (fileSalesforceBtn) fileSalesforceBtn.disabled = !canExport;
     }
 
     // Approve All Clean
@@ -1744,88 +1727,6 @@
         showToast('Exported ' + nPo + ' PO row(s)' + (nRa ? ', ' + nRa + ' rebate/adj.' : '') + ' to CSV');
       } catch (err) {
         alert('Export failed: ' + (err.message || err));
-      }
-    });
-
-    // File to Salesforce modal
-    document.getElementById('file-salesforce-btn').addEventListener('click', function () {
-      const approved = resultData.po_groups.filter(g => poStates[getGroupKey(g)] === 'approved');
-      const poTotal = approved.reduce((sum, g) => sum + (getGroupDisplay(g).total_commission != null ? getGroupDisplay(g).total_commission : 0), 0);
-      const approvedPoKeys = new Set(
-        approved.map(g => String(getGroupKey(g) || '').trim().toUpperCase()).filter(Boolean)
-      );
-      const orphanNoPo = approvedNoPOItems.filter(i => {
-        const k = String(i.po_number || '').trim().toUpperCase();
-        return k && !approvedPoKeys.has(k);
-      });
-      const nopoTotal = orphanNoPo.reduce((sum, i) => sum + (i.commission_amount != null ? i.commission_amount : 0), 0);
-      const raReb = rebatesAndAdjustments.filter(e => e.type === 'rebate').reduce((s, e) => s + (e.paid_commission || 0), 0);
-      const raAdj = rebatesAndAdjustments.filter(e => e.type === 'adjustment').reduce((s, e) => s + (e.paid_commission || 0), 0);
-      const total = poTotal + nopoTotal + raAdj - raReb;
-      const count = approved.length + orphanNoPo.length;
-      const raLine = rebatesAndAdjustments.length
-        ? ` (${rebatesAndAdjustments.length} rebate/adj. line${rebatesAndAdjustments.length === 1 ? '' : 's'})`
-        : '';
-      document.getElementById('file-modal-text').textContent = `Filing ${count} POs${raLine} totaling $${total.toLocaleString('en-US', { minimumFractionDigits: 2 })} to Salesforce`;
-      document.getElementById('file-modal').classList.remove('hidden');
-    });
-
-    document.getElementById('file-modal-cancel').addEventListener('click', () => {
-      document.getElementById('file-modal').classList.add('hidden');
-    });
-
-    document.getElementById('file-modal-confirm').addEventListener('click', async () => {
-      document.getElementById('file-modal').classList.add('hidden');
-      const approved = resultData.po_groups.filter(g => poStates[getGroupKey(g)] === 'approved');
-      const approvedGroups = approved.map(g => {
-        const key = getGroupKey(g);
-        const e = poEdits[key] || {};
-        const out = {
-          ...g,
-          dealer_name: (e.dealer_name != null ? e.dealer_name : g.dealer_name),
-          po_number: (e.po_number != null ? e.po_number : g.po_number),
-          total_commission: (e.total_commission != null ? e.total_commission : g.total_commission),
-          source_file: g.source_file
-        };
-        if (g.source_files && g.source_files.length) out.source_files = g.source_files;
-        return out;
-      });
-      const approvedPoKeys = new Set(
-        approved.map(g => String(getGroupKey(g) || '').trim().toUpperCase()).filter(Boolean)
-      );
-      const orphanNoPo = approvedNoPOItems.filter(item => {
-        const k = String(item.po_number || '').trim().toUpperCase();
-        return k && !approvedPoKeys.has(k);
-      });
-      const nopoAsPos = orphanNoPo.map(item => ({
-        po_number: item.po_number,
-        po_source: item.po_source,
-        dealer_name: item.dealer_name,
-        total_commission: (item.commission_amount != null ? item.commission_amount : (item.total_commission != null ? item.total_commission : 0)),
-        total_sale_amount: (item.sale_amount != null ? item.sale_amount : (item.total_sale_amount != null ? item.total_sale_amount : 0)),
-        invoice_numbers: [item.invoice_number].filter(Boolean),
-        invoice_dates: [item.invoice_date].filter(Boolean),
-        source_file: item.source_file
-      }));
-      const summaryData = resultData.summary || {};
-      const payload = {
-        manufacturer: summaryData.manufacturer,
-        period: summaryData.period,
-        document_hash: resultData.document_hash,
-        file_name: resultData.file_name,
-        approved_pos: [...approvedGroups, ...nopoAsPos],
-        rebates_adjustments: rebatesAndAdjustments
-      };
-      try {
-        const fileResponse = await fetch(API_BASE + '/commission/file', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        const resp = await fileResponse.json();
-        if (!fileResponse.ok) throw new Error(resp.detail || fileResponse.statusText);
-      } catch (err) {
-        alert(err.message || 'Filing failed');
       }
     });
   </script>

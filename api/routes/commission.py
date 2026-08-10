@@ -300,38 +300,6 @@ async def export_to_csv(request: dict):
     )
 
 
-@router.post("/file")
-async def file_to_salesforce(request: dict):
-    """
-    File approved commission POs to Salesforce.
-    Marks document as processed on success for duplicate detection.
-    """
-    # Actual Salesforce filing logic to be implemented
-    # For now, acknowledge and mark as processed
-    try:
-        from parser.commission_extractor import mark_as_processed
-
-        if request.get('document_hash'):
-            mark_as_processed(
-                request['document_hash'],
-                request.get('file_name', ''),
-                DB_PATH
-            )
-
-        return JSONResponse({
-            "status": "success",
-            "message": "Filed successfully",
-            "approved_count": len(request.get('approved_pos', []))
-        })
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
-
-
 @router.get("/templates")
 async def list_templates():
     """List all saved manufacturer templates."""
