@@ -550,8 +550,11 @@ def extract_with_gemini(content, file_name):
     Handles large documents by chunking.
     """
     from google import genai
-    
-    api_key = os.getenv('GEMINI_API_KEY')
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    api_key = (os.getenv('GEMINI_API_KEY') or '').strip()
     if not api_key:
         raise ValueError("GEMINI_API_KEY not set")
     

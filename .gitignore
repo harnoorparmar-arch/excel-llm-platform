@@ -21,6 +21,7 @@ test_data/
 *.xlsm
 *.pdf
 *.txt
+!requirements.txt
 *.csv
 *.slk
 

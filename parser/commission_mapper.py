@@ -361,7 +361,9 @@ def map_columns_with_ai(file_path, file_name):
     from dotenv import load_dotenv
     load_dotenv()
 
-    api_key = os.getenv('GEMINI_API_KEY')
+    api_key = (os.getenv('GEMINI_API_KEY') or '').strip()
+    if not api_key:
+        raise ValueError("GEMINI_API_KEY not set")
     client = genai.Client(api_key=api_key)
 
     sheets_data = get_headers_and_samples(

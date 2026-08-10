@@ -34,14 +34,12 @@
       <h1 class="text-lg font-bold">Commission Filing</h1>
       <p class="text-gray-400 text-sm mt-1">HITL Review</p>
     </div>
-    <nav class="px-4 space-y-1">
-      <a href="/" class="block py-2 px-3 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg text-sm">
-        ← Single File
-      </a>
-      <a href="/workspace" class="block py-2 px-3 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg text-sm">
-        Workspace
-      </a>
-    </nav>
+    <div class="px-4">
+      <button id="new-batch-btn-sidebar" type="button"
+              class="hidden w-full px-3 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg text-sm font-medium border border-gray-700">
+        + New Batch
+      </button>
+    </div>
     <div class="mt-auto p-4">
       <p class="text-xs text-gray-400">Upload commission reports. Review and approve before exporting.</p>
     </div>
@@ -95,7 +93,13 @@
 
         <!-- SECTION 2 - Summary Cards (hidden until results) -->
         <section id="summary-section" class="hidden mb-8">
-          <h2 class="text-base font-semibold text-gray-800 mb-4">Summary</h2>
+          <div class="flex items-center justify-between mb-4 gap-3">
+            <h2 class="text-base font-semibold text-gray-800">Summary</h2>
+            <button id="new-batch-btn" type="button"
+                    class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">
+              + New Batch
+            </button>
+          </div>
           <div class="grid grid-cols-2 md:grid-cols-5 gap-4" id="summary-cards-grid">
             <div class="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
               <p class="text-xs text-gray-500 uppercase tracking-wide">Manufacturer</p>
@@ -218,7 +222,7 @@
             </div>
           </div>
           <div class="mt-3 flex flex-wrap items-center justify-between gap-2">
-            <p class="text-xs text-gray-500 max-w-xl">When finished, click Apply to update the Total Commission summary card (file total − rebates + adjustments).</p>
+            <p class="text-xs text-gray-500 max-w-xl">When finished, click Apply to refresh the Total Commission summary (non-skipped POs − rebates + adjustments). The summary also updates as you approve, edit, or skip rows.</p>
             <button type="button" id="apply-ra-to-summary-btn"
                     class="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primaryHover shrink-0">
               Apply to summary
@@ -240,6 +244,9 @@
             <span class="ml-4 commission-amount" id="approved-amount" title="Sum of approved rows">$0.00 approved</span>
           </div>
           <div class="flex gap-3">
+            <button id="new-batch-btn-bar" type="button" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">
+              + New Batch
+            </button>
             <button id="approve-all-clean-btn" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">
               Approve All Clean
             </button>
@@ -577,23 +584,82 @@
       return Number.isNaN(n) ? 0 : n;
     }
 
-    function applyRebatesToSummary() {
-      if (!resultData || !resultData.summary) return;
-      const base = originalSummaryCommission;
-      const totalRebates = rebatesAndAdjustments
+    function formatMoney(n) {
+      return '$' + (Number(n) || 0).toLocaleString('en-US', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      });
+    }
+
+    function computeLiveCommissionTotals() {
+      if (!resultData) {
+        return { filingTotal: 0, approvedTotal: 0, approvedRowCount: 0, skipped: 0, pending: 0 };
+      }
+
+      const poGroups = resultData.po_groups || [];
+      const approvedPOs = poGroups.filter(
+        g => poStates[getGroupKey(g)] === 'approved'
+      );
+      const nonSkippedPOs = poGroups.filter(
+        g => (poStates[getGroupKey(g)] || 'pending') !== 'skipped'
+      );
+
+      const approvedPoKeys = new Set(
+        approvedPOs.map(g => String(getGroupKey(g) || '').trim().toUpperCase()).filter(Boolean)
+      );
+
+      const poApprovedTotal = approvedPOs.reduce(
+        (sum, g) => sum + (getGroupDisplay(g).total_commission != null ? Number(getGroupDisplay(g).total_commission) : 0),
+        0
+      );
+      const poFilingTotal = nonSkippedPOs.reduce(
+        (sum, g) => sum + (getGroupDisplay(g).total_commission != null ? Number(getGroupDisplay(g).total_commission) : 0),
+        0
+      );
+
+      const orphanApprovedNoPO = approvedNoPOItems.filter(item => {
+        const k = String(item.po_number || '').trim().toUpperCase();
+        return k && !approvedPoKeys.has(k);
+      });
+      const noPOTotal = orphanApprovedNoPO.reduce(
+        (sum, item) => sum + (item.commission_amount != null ? item.commission_amount : (item.total_commission != null ? item.total_commission : 0)),
+        0
+      );
+
+      const totalRebatesRA = rebatesAndAdjustments
         .filter(e => e.type === 'rebate')
         .reduce((sum, e) => sum + raPaidCommission(e), 0);
-      const totalAdjustments = rebatesAndAdjustments
+      const totalAdjustmentsRA = rebatesAndAdjustments
         .filter(e => e.type === 'adjustment')
         .reduce((sum, e) => sum + raPaidCommission(e), 0);
-      const net = base - totalRebates + totalAdjustments;
+
+      const approvedRowCount = approvedPOs.length + orphanApprovedNoPO.length;
+      const skipped = Object.values(poStates).filter(s => s === 'skipped').length;
+      const pending = poGroups.length - approvedPOs.length - skipped;
+
+      return {
+        filingTotal: poFilingTotal + noPOTotal + totalAdjustmentsRA - totalRebatesRA,
+        approvedTotal: poApprovedTotal + noPOTotal + totalAdjustmentsRA - totalRebatesRA,
+        approvedRowCount,
+        skipped,
+        pending
+      };
+    }
+
+    function syncSummaryCommission(filingTotal) {
       const summaryCommEl = document.getElementById('summary-total-commission');
       if (summaryCommEl) {
-        summaryCommEl.textContent = '$' + net.toLocaleString('en-US', {
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2
-        });
+        summaryCommEl.textContent = formatMoney(filingTotal);
       }
+      if (resultData && resultData.summary) {
+        resultData.summary.total_commission = Math.round((Number(filingTotal) || 0) * 100) / 100;
+      }
+    }
+
+    function applyRebatesToSummary() {
+      if (!resultData || !resultData.summary) return;
+      const { filingTotal } = computeLiveCommissionTotals();
+      syncSummaryCommission(filingTotal);
     }
 
     function updateRATotal() {
@@ -854,11 +920,84 @@
       });
       currentFilter = 'all';
       renderAll();
+      setNewBatchButtonsVisible(true);
+    }
+
+    function setNewBatchButtonsVisible(visible) {
+      ['new-batch-btn', 'new-batch-btn-bar', 'new-batch-btn-sidebar'].forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (id === 'new-batch-btn-sidebar') {
+          el.classList.toggle('hidden', !visible);
+        }
+      });
+    }
+
+    function startNewBatch() {
+      const hasWork = resultData || uploadedFiles.length > 0;
+      if (hasWork && !confirm('Start a new batch? Current review progress will be cleared.')) {
+        return;
+      }
+
+      uploadedFiles = [];
+      resultData = null;
+      poStates = {};
+      poEdits = {};
+      expandedRows.clear();
+      noPOItems = [];
+      approvedNoPOItems = [];
+      currentFilter = 'all';
+      batchApprovedKeys.clear();
+      rebatesAndAdjustments = [];
+      raIdCounter = 0;
+      originalSummaryCommission = 0;
+
+      if (fileInput) fileInput.value = '';
+      processBtn.disabled = true;
+      hideError();
+      hideLoading();
+
+      const fileList = document.getElementById('file-list');
+      if (fileList) fileList.classList.add('hidden');
+      const fileListItems = document.getElementById('file-list-items');
+      if (fileListItems) fileListItems.innerHTML = '';
+
+      ['summary-section', 'table-section', 'invoice-search-bar', 'action-bar', 'action-bar-spacer'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.add('hidden');
+      });
+
+      const noPoSection = document.getElementById('no-po-section');
+      if (noPoSection) noPoSection.style.display = 'none';
+      const raSec = document.getElementById('rebate-adjustment-section');
+      if (raSec) raSec.style.display = 'none';
+      const raList = document.getElementById('rebate-adjustment-list');
+      if (raList) raList.innerHTML = '';
+      const raSummary = document.getElementById('ra-summary');
+      if (raSummary) raSummary.classList.add('hidden');
+
+      const tbody = document.getElementById('po-table-body');
+      if (tbody) tbody.innerHTML = '';
+      const undoAllBtn = document.getElementById('undo-all-btn');
+      if (undoAllBtn) undoAllBtn.style.display = 'none';
+      const searchInput = document.getElementById('invoice-search-input');
+      if (searchInput) searchInput.value = '';
+      const searchResult = document.getElementById('invoice-search-result');
+      if (searchResult) searchResult.textContent = '';
+
+      setNewBatchButtonsVisible(false);
+
+      const uploadSection = document.getElementById('upload-section');
+      if (uploadSection) uploadSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
     processBtn.addEventListener('click', () => {
       if (uploadedFiles.length === 0) return;
       processFiles(uploadedFiles);
+    });
+
+    ['new-batch-btn', 'new-batch-btn-bar', 'new-batch-btn-sidebar'].forEach(id => {
+      document.getElementById(id)?.addEventListener('click', startNewBatch);
     });
 
     document.getElementById('add-rebate-btn')?.addEventListener('click', () => {
@@ -1522,43 +1661,16 @@
     function renderActionBar() {
       if (!resultData) return;
 
-      const poGroups = resultData.po_groups || [];
-      const approvedPOs = poGroups.filter(
-        g => poStates[getGroupKey(g)] === 'approved'
-      );
+      const {
+        filingTotal,
+        approvedTotal,
+        approvedRowCount,
+        skipped,
+        pending
+      } = computeLiveCommissionTotals();
 
-      const approvedPoKeys = new Set(
-        approvedPOs.map(g => String(getGroupKey(g) || '').trim().toUpperCase()).filter(Boolean)
-      );
-
-      // Sum commission from approved PO groups
-      const poTotal = approvedPOs.reduce(
-        (sum, g) => sum + (getGroupDisplay(g).total_commission != null ? getGroupDisplay(g).total_commission : 0),
-        0
-      );
-
-      // Sum commission from approved no-PO items (Use Invoice as PO, Enter manually)
-      const orphanApprovedNoPO = approvedNoPOItems.filter(item => {
-        const k = String(item.po_number || '').trim().toUpperCase();
-        return k && !approvedPoKeys.has(k);
-      });
-      const noPOTotal = orphanApprovedNoPO.reduce(
-        (sum, item) => sum + (item.commission_amount != null ? item.commission_amount : (item.total_commission != null ? item.total_commission : 0)),
-        0
-      );
-
-      const totalRebatesRA = rebatesAndAdjustments
-        .filter(e => e.type === 'rebate')
-        .reduce((sum, e) => sum + raPaidCommission(e), 0);
-      const totalAdjustmentsRA = rebatesAndAdjustments
-        .filter(e => e.type === 'adjustment')
-        .reduce((sum, e) => sum + raPaidCommission(e), 0);
-
-      const approvedRowCount = approvedPOs.length + orphanApprovedNoPO.length;
-      const totalCommission = poTotal + noPOTotal + totalAdjustmentsRA - totalRebatesRA;
-
-      const skipped = Object.values(poStates).filter(s => s === 'skipped').length;
-      const pending = poGroups.length - approvedPOs.length - skipped;
+      // Keep the Summary "Total Commission" card in sync with edits / skips / approvals
+      syncSummaryCommission(filingTotal);
 
       document.getElementById('action-bar').classList.remove('hidden');
       document.getElementById('action-bar-spacer').classList.remove('hidden');
@@ -1567,11 +1679,7 @@
       document.getElementById('bar-pending').textContent = pending;
       const approvedAmtEl = document.getElementById('approved-amount');
       if (approvedAmtEl) {
-        approvedAmtEl.textContent =
-          '$' + totalCommission.toLocaleString('en-US', {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2
-          }) + ' approved';
+        approvedAmtEl.textContent = formatMoney(approvedTotal) + ' approved';
       }
 
       const exportCsvBtn = document.getElementById('export-csv-btn');
