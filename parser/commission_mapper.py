@@ -381,8 +381,10 @@ def map_columns_with_ai(file_path, file_name):
     print(f"  Sending {len(evidence)} chars to Gemini "
           f"for column mapping...")
 
-    response = client.models.generate_content(
-        model='gemini-2.5-flash-lite',
+    from parser.gemini_client import generate_content
+
+    response = generate_content(
+        client,
         config={'system_instruction': MAPPING_PROMPT},
         contents=evidence
     )

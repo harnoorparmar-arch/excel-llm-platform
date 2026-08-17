@@ -579,8 +579,10 @@ def extract_with_gemini(content, file_name):
         )
         
         try:
-            response = client.models.generate_content(
-                model='gemini-2.5-flash-lite',
+            from parser.gemini_client import generate_content
+
+            response = generate_content(
+                client,
                 config={
                     'system_instruction': EXTRACTION_PROMPT
                 },
